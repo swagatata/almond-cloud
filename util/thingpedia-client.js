@@ -16,7 +16,9 @@ const device = require('../model/device');
 const user = require('../model/user');
 const schema = require('../model/schema');
 
-const S3_HOST = 'https://d3hpoqf2ntov6o.cloudfront.net/devices/';
+const S3_HOST = function() {
+    return platform.getOrigin() + '/thingpedia/zipfiles/';
+}
 
 const LEGACY_MAPS = {
     'linkedin': 'com.linkedin',
@@ -84,9 +86,9 @@ module.exports = new lang.Class({
                             throw new Error('No Code Available');
 
                         if (developer !== null && developer.id === device.owner)
-                            return (S3_HOST + device.primary_kind + '-v' + device.developer_version + '.zip');
+                            return (S3_HOST() + device.primary_kind + '-v' + device.developer_version + '.zip');
                         else if (device.approved_version !== null)
-                            return (S3_HOST + device.primary_kind + '-v' + device.approved_version + '.zip');
+                            return (S3_HOST() + device.primary_kind + '-v' + device.approved_version + '.zip');
                         else
                             throw new Error('Not Authorized');
                     });

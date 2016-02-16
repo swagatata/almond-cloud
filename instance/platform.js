@@ -212,9 +212,7 @@ module.exports = {
     // installation. This is primarily used for OAuth redirects, and
     // so must match what the upstream services accept.
     getOrigin: function() {
-        // Xor these comments for testing
-        //return 'http://127.0.0.1:8080';
-        return 'https://thingengine.stanford.edu';
+        return 'http://127.0.0.1:8080';
     },
 
     getCloudId: function() {

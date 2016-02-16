@@ -112,6 +112,7 @@ Frontend.prototype._init = function _init() {
     this._app.use('/api', require('./routes/server'));
     this._app.use('/thingpedia/api', require('./routes/thingpedia_api'));
     this._app.use('/thingpedia/download', require('./routes/thingpedia_download'));
+    this._app.use('/thingpedia/zipfiles', express.static('./code', { maxAge: 86400000 }));
     // FIXME: initialize csurf after /upload too
     // because upload uses multer, which is incompatible
     // with csurf

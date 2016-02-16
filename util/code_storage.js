@@ -9,22 +9,18 @@
 const fs = require('fs');
 const Q = require('q');
 
-var AWS = require('aws-sdk');
-
-// NOTE: S3 is hosted in Northern California (us-west-1), not Washington (us-west-2)
-AWS.config.update({ region: 'us-west-1',
-                    logger: process.stdout });
+function safeMkdir(dir) {
+    try {
+        fs.mkdirSync(dir);
+    } catch(e) {
+        if (e.code !== 'EEXIST')
+            throw e;
+    }
+}
 
 module.exports = {
     storeFile: function(blob, name, version) {
-        var s3 = new AWS.S3();
-        var upload = s3.upload({ Bucket: 'thingpedia',
-                                 Key: 'devices/' + name + '-v' + version + '.zip',
-                                 Body: blob,
-                                 ContentType: 'application/zip' });
-        return Q.ninvoke(upload, 'send').then(function() {
-            console.log('Successfully uploaded zip file to S3 for ' +
-                        name + ' v' + version);
-        });
+        safeMkdir('./code');
+        return Q.nfcall(fs.writeFile, './code/' + name + '-v' + version + '.zip', blob);
     },
 };

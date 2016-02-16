@@ -1,9 +1,5 @@
-
-prefix ?= /opt/thingengine
-localstatedir ?= /srv/thingengine
-
-all: platform_config.js
-	make -C sandbox all
+all:
+	git submodule update --init --recursive
 	make -C node_modules/thingengine-core all
 	make -C node_modules/sabrina all
 	cd node_modules/thingpedia ; npm install --no-optional --only=prod
@@ -20,8 +16,11 @@ all: platform_config.js
 	npm install
 	npm dedupe
 
-platform_config.js:
-	echo "exports.PKGLIBDIR = '$(prefix)'; exports.LOCALSTATEDIR = '$(localstatedir)';" > platform_config.js
+database:
+	mysql -u root -p -B -s -e 'show create database thingengine_selfcontained' | grep -q "CREATE DATABASE" || make database-force
+
+database-force:
+	mysql -u root -p < model/schema.sql
 
 SUBDIRS = model util public routes views node_modules/
 our_sources = main.js frontend.js instance/platform.js instance/runengine.js platform_config.js
@@ -33,7 +32,9 @@ install: all
 	install -m 0644 $(our_sources) $(DESTDIR)$(prefix)
 
 clean:
-	make -C sandbox clean
 	make -C node_modules/thingengine-core clean
 	make -C node_modules/sabrina clean
 
+run:
+	test -d ./home || mkdir ./home ;
+	cd ./home ; node ../main.js

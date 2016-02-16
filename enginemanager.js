@@ -21,21 +21,7 @@ const db = require('./util/db');
 const ThingPediaClient = require('./util/thingpedia-client');
 const AssistantDispatcher = require('./assistantdispatcher');
 
-var _logJournal;
-try {
-    const journald = require('journald').Log;
-    _logJournal = function(obj) {
-        journald.log(obj);
-    };
-} catch(e) {
-    console.error('Failed to setup journald');
-    _logJournal = function(obj) {
-        if (obj.PRIORITY <= 4)
-            console.error('User ' + obj.THINGENGINE_USER_ID + ': ' + obj.MESSAGE);
-        else
-            console.log('User ' + obj.THINGENGINE_USER_ID + ': ' + obj.MESSAGE);
-    }
-}
+const LOG_WARN = 4;
 const LOG_INFO = 6;
 const LOG_ERR = 3;
 
@@ -116,10 +102,9 @@ const EngineManager = new lang.Class({
 
                 var managerPath = path.dirname(module.filename);
                 var enginePath = managerPath + '/instance/runengine';
-                var sandboxPath = managerPath + '/sandbox/sandbox';
-                var args = ['-i', cloudId, process.execPath].concat(process.execArgv);
+                var args = process.execArgv.slice();
                 args.push(enginePath);
-                var child = child_process.spawn(sandboxPath, args,
+                var child = child_process.spawn(process.execPath, args,
                                                 { stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
                                                   cwd: './' + cloudId,
                                                   env: env });
@@ -129,11 +114,10 @@ const EngineManager = new lang.Class({
                         str.split('\n').forEach(function(line) {
                             var trimmed = line.trim();
                             if (trimmed.length > 0) {
-                                _logJournal({ PRIORITY: priority,
-                                              MESSAGE: trimmed,
-                                              SYSLOG_IDENTIFIER: 'thingengine-child-' + userId,
-                                              THINGENGINE_PID: child.pid,
-                                              THINGENGINE_USER_ID: userId });
+                                if (priority <= LOG_WARN)
+                                    console.error('ThingEngine User ' + userId + ': ' + trimmed);
+                                else
+                                    console.log('ThingEngine User ' + userId + ': ' + trimmed);
                             }
                         });
                     });
