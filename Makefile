@@ -15,6 +15,7 @@ all:
 	rm -fr node_modules/thingpedia-builtins/node_modules/omclient
 	npm install
 	npm dedupe
+	make database
 
 database:
 	mysql -u root -p -B -s -e 'show create database thingengine_selfcontained' | grep -q "CREATE DATABASE" || make database-force
@@ -38,3 +39,7 @@ clean:
 run:
 	test -d ./home || mkdir ./home ;
 	cd ./home ; node ../main.js
+
+reset:
+	rm -fr ./home
+	make database-force
