@@ -1,7 +1,7 @@
 all:
 	git submodule update --init --recursive
 	make -C node_modules/thingengine-core all
-	make -C node_modules/sabrina all
+	make -C node_modules/sabrina all-nosempre
 	cd node_modules/thingpedia ; npm install --no-optional --only=prod
 	cd node_modules/thingpedia-client ; npm install --no-optional --only=prod
 	cd node_modules/thingpedia-discovery ; npm install --no-optional --only=prod
