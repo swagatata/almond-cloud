@@ -166,11 +166,9 @@ create table category (
 LOCK TABLES `category` WRITE;
 /*!40000 ALTER TABLE `category` DISABLE KEYS */;
 INSERT INTO `category` VALUES
-(1,'Offload Your Chores','Time-based apps','Every once in a while, the computer can do it for you','timer','time',0),
-(2,'Talk to Your Things','Sabrina apps','Make the computer speak at you','sabrina','bullhorn',1),
 (3,'Play with Your Friends','Social apps','Share them with your friends!','social','thumbs-up',2),
 (4,'Stay Alert','Notifications','Never miss a thing','notify','bell',-1),
-(5,'Connect Your Home','IoT for the Home','Your home, everywhere','home','home',3),
+(5,'Connect Your Home','IoT for the Home','Your home, everywhere','home','home',5),
 (6,'Stay Healthy','Health & Fitness Apps','In Soviet gym, fat burns You!','fitness','heart',4);
 /*!40000 ALTER TABLE `category` ENABLE KEYS */;
 UNLOCK TABLES;
@@ -178,14 +176,13 @@ UNLOCK TABLES;
 LOCK TABLES `device_class` WRITE;
 /*!40000 ALTER TABLE `device_class` DISABLE KEYS */;
 INSERT INTO `device_class` VALUES
-(8,'org.thingpedia.builtin.omlet','omlet',1,'Omlet Account','Connect your Omlet Account to ThingEngine to enable new social network features!',0,0,0),
-(22,'org.thingpedia.builtin.sabrina','sabrina',1,'Sabrina','Your magic assistant, at your service.',0,0,0);
+(8,'org.thingpedia.builtin.omlet','omlet',1,'Omlet Account','Connect your Omlet Account to ThingEngine to enable new social network features!',0,0,0);
 /*!40000 ALTER TABLE `device_class` ENABLE KEYS */;
 UNLOCK TABLES;
 
 LOCK TABLES `device_class_tag` WRITE;
 /*!40000 ALTER TABLE `device_class_tag` DISABLE KEYS */;
-INSERT INTO `device_class_tag` VALUES ('featured',8),('featured',22);
+INSERT INTO `device_class_tag` VALUES ('featured',8);
 /*!40000 ALTER TABLE `device_class_tag` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -200,8 +197,7 @@ UNLOCK TABLES;
 LOCK TABLES `device_code_version` WRITE;
 /*!40000 ALTER TABLE `device_code_version` DISABLE KEYS */;
 INSERT INTO `device_code_version` VALUES
-(8,0,'{\n  \"auth\": {\n    \"type\": \"oauth2\"\n  },\n  \"types\": [\n    \"online-account\",\n    \"messaging\"\n  ],\n  \"params\": {},\n  \"global-name\": \"omlet\",\n  \"triggers\": {\n    \"newmessage\": {\n      \"args\": [\n        \"feed\",\n        \"type\",\n        \"message\"\n      ], \"schema\": [\"Feed\",\"String\",\"String\"],\n      \"doc\": \"trigger on any new message in the feed\"\n    },\n    \"incomingmessage\": {\n      \"args\": [\n        \"feed\",\n        \"type\",\n        \"message\"\n      ], \"schema\": [\"Feed\",\"String\",\"String\"],\n      \"doc\": \"trigger on any incoming (from other people) message in the feed\"\n    }\n  },\n  \"actions\": {\n    \"send\": {\n      \"args\": [\n        \"feed\",\n        \"type\",\n        \"message\"\n      ], \"schema\": [\"Feed\",\"String\",\"String\"],\n      \"doc\": \"send a message to the feed; type can be text or picture\"\n    }\n  }\n}'),
-(22,0,'{\"auth\":{\"type\":\"builtin\"},\"triggers\":{\"listen\":{\"args\":[\"message\"],\"schema\":[\"String\"],\"doc\":\"trigger on any message to Sabrina, except those that have a built-in response\"}},\"actions\":{\"say\":{\"args\":[\"message\"],\"schema\":[\"String\"],\"doc\":\"cause Sabrina to say something\"}}}');
+(8,0,'{\n  \"auth\": {\n    \"type\": \"oauth2\"\n  },\n  \"types\": [\n    \"online-account\",\n    \"messaging\"\n  ],\n  \"params\": {},\n  \"global-name\": \"omlet\",\n  \"triggers\": {\n    \"newmessage\": {\n      \"args\": [\n        \"feed\",\n        \"type\",\n        \"message\"\n      ], \"schema\": [\"Feed\",\"String\",\"String\"],\n      \"doc\": \"trigger on any new message in the feed\"\n    },\n    \"incomingmessage\": {\n      \"args\": [\n        \"feed\",\n        \"type\",\n        \"message\"\n      ], \"schema\": [\"Feed\",\"String\",\"String\"],\n      \"doc\": \"trigger on any incoming (from other people) message in the feed\"\n    }\n  },\n  \"actions\": {\n    \"send\": {\n      \"args\": [\n        \"feed\",\n        \"type\",\n        \"message\"\n      ], \"schema\": [\"Feed\",\"String\",\"String\"],\n      \"doc\": \"send a message to the feed; type can be text or picture\"\n    }\n  }\n}');
 /*!40000 ALTER TABLE `device_code_version` ENABLE KEYS */;
 UNLOCK TABLES;
 
