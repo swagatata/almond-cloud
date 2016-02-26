@@ -191,16 +191,12 @@ function validateDevice(dbClient, req) {
             if (!ast.actions[name].url)
                 throw new Error("Missing trigger url for " + name);
         }
-    } else if (!req.file || !req.file.buffer || !req.file.buffer.length) {
-        throw new Error('Invalid zip file');
+    } else if (!kind.startsWith('org.thingpedia.builtin.')) {
+        if (!req.file || !req.file.buffer || !req.file.buffer.length)
+            throw new Error('Invalid zip file');
     }
 
-    if (ast['global-name'])
-        var allTypes = ast.types.concat([ast['global-name']]);
-    else
-        var allTypes = ast.types;
-
-    return Q.all(allTypes.map(function(type) {
+    return Q.all(ast.types.map(function(type) {
         return validateSchema(dbClient, type, ast, type === ast['global-name']);
     })).then(function() {
         return ast;
@@ -217,11 +213,9 @@ function ensurePrimarySchema(dbClient, kind, ast) {
         actions[name] = ast.actions[name].schema;
 
     return schema.getByKind(dbClient, kind).then(function(existing) {
-        existing.developer_version += 1;
-        existing.approved_version += 1;
         return schema.update(dbClient,
-                             existing.id, { developer_version: existing.developer_version,
-                                            approved_version: existing.approved_version },
+                             existing.id, { developer_version: existing.developer_version + 1,
+                                            approved_version: existing.approved_version + 1},
                              [triggers, actions]);
     }).catch(function(e) {
         return schema.create(dbClient, { developer_version: 0,
@@ -233,8 +227,10 @@ function ensurePrimarySchema(dbClient, kind, ast) {
             return;
 
         return schema.getByKind(dbClient, ast['global-name']).then(function(existing) {
-            console.log('existing', existing);
-            return;
+            return schema.update(dbClient,
+                                 existing.id, { developer_version: existing.developer_version + 1,
+                                                approved_version: existing.approved_version + 1 },
+                                 [triggers, actions]);
         }).catch(function(e) {
             return schema.create(dbClient, { developer_version: 0,
                                              approved_version: 0,
@@ -326,7 +322,7 @@ function doCreateOrUpdate(id, create, req, res) {
                 if (obj === null)
                     return false;
 
-                if (!obj.fullcode) {
+                if (!obj.fullcode && !obj.primary_kind.startsWith('org.thingpedia.builtin.')) {
                     var zipFile = new JSZip(req.file.buffer, { checkCRC32: true });
 
                     var packageJson = zipFile.file('package.json');

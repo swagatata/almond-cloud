@@ -10,6 +10,7 @@ const Q = require('q');
 const lang = require('lang');
 const events = require('events');
 const Url = require('url');
+const Tp = require('thingpedia');
 
 const Sempre = require('sabrina').Sempre;
 
@@ -140,7 +141,30 @@ const Feed = new lang.Class({
     sendRaw: function(rawItem) {
         return Q.ninvoke(this._client.messaging, '_sendObjToFeedImmediate', this._feed, rawItem.type,
                          rawItem);
-    }
+    },
+
+    sendPicture: function(url) {
+        if (typeof url === 'string') {
+            if (url.startsWith('http')) {
+                return Tp.Helpers.Http.get(url, { raw: true }).spread(function(data, contentType) {
+                    return Q.ninvoke(this._client.messaging, '_pictureObjFromBytes', data, contentType);
+                }.bind(this)).spread(function(objType, obj) {
+                    return Q.ninvoke(this._client.messaging, '_sendObjToFeed',
+                                     this._feed, objType, obj);
+                }.bind(this));
+            } else {
+                throw new Error('Sending pictures by non-http url is not implemented, sorry');
+            }
+        } else if (Buffer.isBuffer(url)) {
+            return Q.ninvoke(this._client.messaging, '_pictureObjFromBytes', url)
+                .spread(function(objType, obj) {
+                    return Q.ninvoke(this._client.messaging, '_sendObjToFeed',
+                                     this._feed, objType, obj);
+                }.bind(this));
+        } else {
+            throw new TypeError('Invalid type for call to sendPicture, must be string or buffer');
+        }
+    },
 });
 
 const Messaging = new lang.Class({
@@ -256,27 +280,47 @@ const Messaging = new lang.Class({
 
 const AssistantFeed = new lang.Class({
     Name: 'AssistantFeed',
-    $rpcMethods: ['send', 'analyze'],
+    $rpcMethods: ['send', 'analyze', 'sendPicture'],
 
-    _init: function(sempre, feed, engine) {
+    _init: function(sempre, feed, client, engine) {
         this._sempre = sempre;
         this._feed = feed;
+        this._client = client;
         this._remote = engine.assistant;
         this._newMessageListener = this._onNewMessage.bind(this);
     },
 
     _onNewMessage: function(msg) {
-        if (msg.type !== 'text')
-            return;
-        if (msg.hidden) // hidden messages are used by ThingTalk feed-shared keywords, ignore them
-            return;
-        this._remote.handleCommand(msg.text).catch(function(e) {
-            console.log('Failed to handle assistant command: ' + e.message);
-        }).done();
+        if (msg.type === 'text') {
+            if (msg.hidden) // hidden messages are used by ThingTalk feed-shared keywords, ignore them
+                return;
+            this._remote.handleCommand(msg.text).catch(function(e) {
+                console.log('Failed to handle assistant command: ' + e.message);
+            }).done();
+        } else if (msg.type === 'picture') {
+            var blob = this._client.blob;
+
+            setTimeout(function() {
+                blob.getDownloadLinkForHash(msg.fullSizeHash, function(error, url) {
+                    if (error) {
+                        console.log('failed to get download link for picture', error);
+                        return;
+                    }
+
+                    this._remote.handlePicture(url).catch(function(e) {
+                        console.log('Failed to handle assistant picture: ' + e.message);
+                    }).done();
+                }.bind(this));
+            }.bind(this), 5000);
+        }
     },
 
     send: function(msg) {
         return this._feed.sendText(msg);
+    },
+
+    sendPicture: function(url) {
+        return this._feed.sendPicture(url);
     },
 
     analyze: function(utterance) {
@@ -376,7 +420,7 @@ module.exports = new lang.Class({
 
     _startEngine: function(obj, firstTime) {
         var feed = this._messaging.getFeed(obj.feedId);
-        obj.feed = new AssistantFeed(this._sempre, feed, obj.engine);
+        obj.feed = new AssistantFeed(this._sempre, feed, this._messaging.client, obj.engine);
         obj.feed.start().done();
     },
 
