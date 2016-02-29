@@ -89,3 +89,5 @@ block content
     if authenticated && (user.developer_status >= 3 || device.owner === user.id)
       div.col-md-2
         a.btn.btn-warning.btn-block(href='/thingpedia/upload/update/' + device.id) Update
+      div.col-md-2
+        a.btn.btn-default.btn-block(href='https://d3hpoqf2ntov6o.cloudfront.net/devices/' + device.primary_kind + '-v' + device.developer_version + '.zip') Download code
