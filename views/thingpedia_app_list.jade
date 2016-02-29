@@ -53,3 +53,12 @@ block content
             if !app.visible
               p This app is not public
 
+  if page_num !== undefined
+    nav
+      ul.pager
+        if page_num > 0
+          li
+            a(href='/thingpedia/apps?page=' + (page_num-1)) Previous
+        if apps.length >= 20
+          li
+            a(href='/thingpedia/apps?page=' + (page_num+1)) Next
