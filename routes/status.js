@@ -18,34 +18,6 @@ const EngineManager = require('../enginemanager');
 
 var router = express.Router();
 
-function readLogs(userId, startCursor) {
-    var args = ['-f', '-o', 'json-sse'];
-    if (startCursor) {
-        args.push('--after-cursor');
-        args.push(startCursor);
-    } else {
-        args.push('-n');
-        args.push('100');
-    }
-
-    var unit;
-    if ('THINGENGINE_UNIT_NAME' in process.env) {
-        unit = process.env.THINGENGINE_UNIT_NAME;
-    } else {
-        unit = 'thingengine-cloud';
-    }
-    if (unit) {
-        args.push('-u');
-        args.push(unit);
-    }
-
-    args.push('THINGENGINE_USER_ID=' + userId);
-
-    var child = child_process.spawn('/usr/bin/journalctl', args,
-                                    { stdio: ['ignore', 'pipe', 'ignore'] });
-    return child;
-}
-
 function getCachedModules(userId) {
     return EngineManager.get().getEngine(userId).then(function(engine) {
         return engine.devices.factory;
@@ -67,17 +39,10 @@ router.get('/', user.redirectLogIn, function(req, res) {
 });
 
 router.get('/logs', user.requireLogIn, function(req, res) {
-    var child = readLogs(req.user.id, req.query.startCursor);
-    var stdout = child.stdout;
     res.set('Content-Type', 'text/event-stream');
-    stdout.pipe(res, { end: false });
     res.on('close', function() {
-        child.kill('SIGINT');
-        stdout.destroy();
     });
     res.on('error', function() {
-        child.kill('SIGINT');
-        stdout.destroy();
     });
 });
 
