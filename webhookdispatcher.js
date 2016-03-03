@@ -33,11 +33,16 @@ module.exports = new lang.Class({
     dispatch: function(req, res) {
         var cloudId = req.params.cloud_id;
         var id = req.params.id;
-        var payload = req.body;
 
         if (this._clients[cloudId]) {
-            this._clients[cloudId].handleCallback(id, payload).then(function() {
-                res.json({ result: 'ok' });
+            this._clients[cloudId].handleCallback(id, req.method, req.query, req.headers, req.body).then(function(result) {
+                if (result) {
+                    if (result.contentType)
+                        res.type(result.contentType);
+                    res.status(result.code).send(result.response);
+                } else {
+                    res.status(200).json({ result: 'ok' });
+                }
             }, function(err) {
                 res.status(500).json({ error: err.message });
             }).done();
