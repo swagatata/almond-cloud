@@ -241,7 +241,7 @@ UNLOCK TABLES;
 
 LOCK TABLES `device_schema_version` WRITE;
 /*!40000 ALTER TABLE `device_schema_version` DISABLE KEYS */;
-INSERT INTO `device_schema_version` (schema_id, version, types, meta) VALUES
+INSERT INTO `device_schema_version` VALUES
 (6,0,'[{\"listen\":[\"String\"]},{\"say\":[\"String\"]}]','[{},{},{}]'),
 (9,0,'[{\"newmessage\":[\"Feed\",\"String\",\"String\"],\"incomingmessage\":[\"Feed\",\"String\",\"String\"]},{\"send\":[\"Feed\",\"String\",\"String\"]}]','[{},{},{}]'),
 (16,0,'[{\"source\":[\"Number\"]},{}]','[{},{},{}]'),
