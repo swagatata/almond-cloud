@@ -57,7 +57,7 @@ insert into users values (
     '00832c5af6048c2fc9713722ef0c896202e2f1b30a746394900fb0e8132d958d', -- salt
     '5f9ea96b5ce8c0b1ab675fd1cd614af7e707332ec461cb96fea7a4414202ee02', -- cloud_id
     '6311efb5e042580a3ccd95c6104af72865195fb94045104d6784533b39f77fd6', -- auth_token
-    1, 3, 1 );
+    1, 3, 1, false );
 
 create table oauth2_clients (
     id char(64) primary key,
