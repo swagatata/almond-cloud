@@ -9,7 +9,7 @@ block page_name
 block styles
   link(rel='stylesheet', href='/stylesheets/my_stuff.css')
 
-mixin device_list(devices, online)
+mixin device_list(devices, online, datasource)
   div.row
     each dev, i in devices
       if i % 6 === 0
@@ -52,11 +52,15 @@ mixin device_list(devices, online)
                   | Please check it is powered on and correctly configured.
           div.panel-footer
             div.row
-              div.col-md-6
-                form.form-inline(action="/devices/delete",method="post").form-delete-app
-                  input(type='hidden',name='id',value=dev.uniqueId)
-                  input(type='hidden',name='_csrf',value=csrfToken)
-                  button(type='submit').btn.btn-danger.btn-sm.btn-block Forget
+              if !dev.isTransient
+                div.col-md-6
+                  form.form-inline(action="/devices/delete",method="post").form-delete-app
+                    input(type='hidden',name='id',value=dev.uniqueId)
+                    input(type='hidden',name='_csrf',value=csrfToken)
+                    if datasource
+                      button(type='submit').btn.btn-danger.btn-sm.btn-block Disable
+                    else
+                      button(type='submit').btn.btn-danger.btn-sm.btn-block Forget
 
 mixin thingpedia_apps(apps, visible)
   div.row
@@ -151,7 +155,7 @@ block content
             else if app.enabled
               p This app is enabled but not running.
             else
-              p This app is enabled for #{app.currentTier}.
+              p This app is not enabled.
 
           div.panel-footer
             div.row
@@ -174,9 +178,17 @@ block content
     div.col-sm-6.col-md-3
       a(href='/thingpedia/apps').btn.btn-default.btn-block Find new apps
 
+  h2 Enabled Data Sources
+
+  +device_list(datasourceDevices, true, true)
+
+  div.row
+    div.col-sm-6.col-md-3
+      a(href='/devices/create?class=data').btn.btn-primary.btn-block Enable new data source
+
   h2 My Devices
 
-  +device_list(physicalDevices, false)
+  +device_list(physicalDevices, false, false)
 
   div.row
     div.col-sm-6.col-md-3
@@ -184,7 +196,7 @@ block content
 
   h2 My Accounts
 
-  +device_list(onlineDevices, true)
+  +device_list(onlineDevices, true, false)
 
   div.row
     div.col-sm-6.col-md-3

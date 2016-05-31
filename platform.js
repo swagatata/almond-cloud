@@ -14,7 +14,7 @@ const os = require('os');
 const child_process = require('child_process');
 
 // FIXME we should not punch through the abstraction
-const prefs = require('thingengine-core/lib/prefs');
+const prefs = require('thingengine-core/lib/util/prefs');
 
 const graphics = require('./instance/graphics');
 

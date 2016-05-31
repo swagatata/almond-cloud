@@ -44,8 +44,15 @@ const DEFAULT_CODE = {"params": {"username": ["Username","text"],
                               "args": ["power"],
                               "doc": "power on/off the device"
                           }
-                      }
-                     };
+                      },
+                      "queries": {
+                          "getpower": {
+                              "url": "http://www.example.com/api/1.0/post",
+                              "args": ["power"],
+                              "doc": "check if the device is on or off"
+                          }
+                     }
+                    };
 const DEFAULT_ONLINE_CODE = {"name": "Example Account of %s",
                              "description": "This is your Example Account",
                              "auth": {"type": "oauth2",
@@ -59,12 +66,6 @@ const DEFAULT_ONLINE_CODE = {"name": "Example Account of %s",
                              "types": ["online-account"],
                              "global-name": "example",
                              "triggers": {
-                                 "profile": {
-                                     "url": "https://www.example.com/api/1.0/profile",
-                                     "poll-interval": 86400000,
-                                     "args": ["username", "pictureUrl", "realName", "link"],
-                                     "doc": "trigger on user profile changes (once a day)"
-                                 },
                                  "onmessage": {
                                      "url": "wss://www.example.com/api/1.0/data",
                                      "args": ["message"],
@@ -77,11 +78,18 @@ const DEFAULT_ONLINE_CODE = {"name": "Example Account of %s",
                                      "args": ["message"],
                                      "doc": "post a new message",
                                  }
+                             },
+                             "queries": {
+                                "profile": {
+                                     "url": "https://www.example.com/api/1.0/profile",
+                                     "args": ["username", "pictureUrl", "realName", "link"],
+                                     "doc": "read the user profile"
+                                 },
                              }
                             };
 
 router.get('/create', user.redirectLogIn, user.requireDeveloper(), function(req, res) {
-    if (req.query.class && ['online', 'physical'].indexOf(req.query.class) < 0) {
+    if (req.query.class && ['online', 'physical', 'data'].indexOf(req.query.class) < 0) {
         res.status(404).render('error', { page_title: "ThingPedia - Error",
                                           message: "Invalid device class" });
         return;
@@ -128,6 +136,12 @@ function validateSchema(dbClient, type, ast, allowFailure) {
             if (!schemaCompatible(ast.actions[action].schema, types[1][action]))
                 throw new Error('Schema for ' + action + ' is not compatible with type ' + type);
         }
+        for (var query in (types[2] || {})) {
+            if (!(query in ast.queries))
+                throw new Error('Type ' + type + ' requires query ' + query);
+            if (!schemaCompatible(ast.queries[query].schema, (types[2] || {})[query]))
+                throw new Error('Schema for ' + query + ' is not compatible with type ' + type);
+        }
     });
 }
 
@@ -150,19 +164,25 @@ function validateDevice(dbClient, req) {
         ast.auth = {"type":"none"};
     if (!ast.auth.type || ['none','oauth2','basic','builtin'].indexOf(ast.auth.type) == -1)
         throw new Error("Invalid auth type");
-    if (ast.auth.type === 'basic' && (!ast.params.username || !ast.params.password))
+    if (fullcode && ast.auth.type === 'basic' && (!ast.params.username || !ast.params.password))
         throw new Error("Username and password must be provided for basic authentication");
+    if (ast.types.indexOf('online-account') >= 0 && ast.types.indexOf('data-source') >= 0)
+        throw new Error("Interface cannot be both marked online-account and data-source");
 
     if (!ast.triggers)
         ast.triggers = {};
     if (!ast.actions)
         ast.actions = {};
+    if (!ast.queries)
+        ast.queries = {};
     for (var name in ast.triggers) {
         if (!ast.triggers[name].schema)
             throw new Error("Missing trigger schema for " + name);
         if ((ast.triggers[name].args && ast.triggers[name].args.length !== ast.triggers[name].schema.length) ||
             (ast.triggers[name].params && ast.triggers[name].params.length !== ast.triggers[name].schema.length))
             throw new Error("Invalid number of arguments in " + name);
+        if (ast.triggers[name].questions && triggers[name].args.length !== ast.triggers[name].schema.length)
+            throw new Error("Invalid number of questions in " + name);
         ast.triggers[name].schema.forEach(function(t) {
             ThingTalk.Type.fromString(t);
         });
@@ -173,7 +193,21 @@ function validateDevice(dbClient, req) {
         if ((ast.actions[name].args && ast.actions[name].args.length !== ast.actions[name].schema.length) ||
             (ast.actions[name].params && ast.actions[name].params.length !== ast.actions[name].schema.length))
             throw new Error("Invalid number of arguments in " + name);
+        if (ast.actions[name].questions && ast.actions[name].questions.length !== ast.actions[name].schema.length)
+            throw new Error("Invalid number of questions in " + name);
         ast.actions[name].schema.forEach(function(t) {
+            ThingTalk.Type.fromString(t);
+        });
+    }
+    for (var name in ast.queries) {
+        if (!ast.queries[name].schema)
+            throw new Error("Missing query schema for " + name);
+        if ((ast.queries[name].args && ast.queries[name].args.length !== ast.queries[name].schema.length) ||
+            (ast.queries[name].params && ast.queries[name].params.length !== ast.queries[name].schema.length))
+            throw new Error("Invalid number of arguments in " + name);
+        if (ast.queries[name].questions && ast.queries[name].questions.length !== ast.queries[name].schema.length)
+            throw new Error("Invalid number of questions in " + name);
+        ast.queries[name].schema.forEach(function(t) {
             ThingTalk.Type.fromString(t);
         });
     }
@@ -189,7 +223,11 @@ function validateDevice(dbClient, req) {
         }
         for (var name in ast.actions) {
             if (!ast.actions[name].url)
-                throw new Error("Missing trigger url for " + name);
+                throw new Error("Missing action url for " + name);
+        }
+        for (var name in ast.queries) {
+            if (!ast.queries[name].url)
+                throw new Error("Missing query url for " + name);
         }
     } else if (!kind.startsWith('org.thingpedia.builtin.')) {
         if (!req.file || !req.file.buffer || !req.file.buffer.length)
@@ -205,23 +243,47 @@ function validateDevice(dbClient, req) {
 
 function ensurePrimarySchema(dbClient, kind, ast) {
     var triggers = {};
+    var triggerMeta = {};
     var actions = {};
+    var actionMeta = {};
+    var queries = {};
+    var queryMeta = {};
 
-    for (var name in ast.triggers)
+    for (var name in ast.triggers) {
         triggers[name] = ast.triggers[name].schema;
-    for (var name in ast.actions)
+        triggerMeta[name] = {
+            doc: ast.triggers[name].doc,
+            args: ast.triggers[name].params || ast.triggers[name].args || [],
+            questions: ast.triggers[name].questions || []
+        };
+    }
+    for (var name in ast.actions) {
         actions[name] = ast.actions[name].schema;
+        actionMeta[name] = {
+            doc: ast.actions[name].doc,
+            args: ast.actions[name].params || ast.actions[name].args || [],
+            questions: ast.actions[name].questions || []
+        };
+    }
+    for (var name in ast.queries) {
+        queries[name] = ast.queries[name].schema;
+        queryMeta[name] = {
+            doc: ast.queries[name].doc,
+            args: ast.queries[name].params || ast.queries[name].args || [],
+            questions: ast.actions[name].questions || []
+        };
+    }
 
     return schema.getByKind(dbClient, kind).then(function(existing) {
         return schema.update(dbClient,
                              existing.id, { developer_version: existing.developer_version + 1,
                                             approved_version: existing.approved_version + 1},
-                             [triggers, actions]);
+                             [triggers, actions, queries], [triggerMeta, actionMeta, queryMeta]);
     }).catch(function(e) {
         return schema.create(dbClient, { developer_version: 0,
                                          approved_version: 0,
                                          kind: kind },
-                             [triggers, actions]);
+                             [triggers, actions, queries], [triggerMeta, actionMeta, queryMeta]);
     }).then(function() {
         if (!ast['global-name'])
             return;
@@ -230,12 +292,12 @@ function ensurePrimarySchema(dbClient, kind, ast) {
             return schema.update(dbClient,
                                  existing.id, { developer_version: existing.developer_version + 1,
                                                 approved_version: existing.approved_version + 1 },
-                                 [triggers, actions]);
+                                 [triggers, actions, queries], [triggerMeta, actionMeta, queryMeta]);
         }).catch(function(e) {
             return schema.create(dbClient, { developer_version: 0,
                                              approved_version: 0,
                                              kind: ast['global-name'] },
-                                 [triggers, actions]);
+                                 [triggers, actions, queries], [triggerMeta, actionMeta, queryMeta]);
         });
     });
 }
@@ -249,6 +311,8 @@ function doCreateOrUpdate(id, create, req, res) {
     var approve = !!req.body.approve;
     var online = false;
 
+    var gAst = undefined;
+
     Q.try(function() {
         return db.withTransaction(function(dbClient) {
             return Q.try(function() {
@@ -259,7 +323,7 @@ function doCreateOrUpdate(id, create, req, res) {
                                                                   "ThingPedia - create new device" :
                                                                   "ThingPedia - edit device"),
                                                                  csrfToken: req.csrfToken(),
-                                                                 error: e.message,
+                                                                 error: e,
                                                                  id: id,
                                                                  device: { name: name,
                                                                            primary_kind: kind,
@@ -291,9 +355,10 @@ function doCreateOrUpdate(id, create, req, res) {
                     fullcode: fullcode,
                 };
                 var code = JSON.stringify(ast);
+                gAst = ast;
 
                 if (create) {
-                    obj.owner = req.user.id;
+                    obj.owner = req.user.developer_org;
                     if (req.user.developer_status < user.DeveloperStatus.TRUSTED_DEVELOPER ||
                         !approve) {
                         obj.approved_version = null;
@@ -305,7 +370,7 @@ function doCreateOrUpdate(id, create, req, res) {
                     return model.create(dbClient, obj, extraKinds, code);
                 } else {
                     return model.get(dbClient, id).then(function(old) {
-                        if (old.owner !== req.user.id &&
+                        if (old.owner !== req.user.developer_org &&
                             req.user.developer_status < user.DeveloperStatus.ADMIN)
                             throw new Error("Not Authorized");
 
@@ -334,6 +399,7 @@ function doCreateOrUpdate(id, create, req, res) {
                         throw new Error('Invalid package.json');
 
                     parsed['thingpedia-version'] = obj.developer_version;
+                    parsed['thingpedia-metadata'] = gAst;
 
                     // upload the file asynchronously to avoid blocking the request
                     setTimeout(function() {
@@ -344,7 +410,7 @@ function doCreateOrUpdate(id, create, req, res) {
                                                                  platform: 'UNIX'}),
                                                obj.primary_kind, obj.developer_version)
                             .catch(function(e) {
-                                console.error('Failed to upload zip file to S3: ' + e.message);
+                                console.error('Failed to upload zip file to S3: ' + e);
                             }).done();
                     }, 0);
                 }
@@ -361,7 +427,7 @@ function doCreateOrUpdate(id, create, req, res) {
         });
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 }
 
@@ -373,7 +439,7 @@ router.get('/update/:id', user.redirectLogIn, user.requireDeveloper(), function(
     Q.try(function() {
         return db.withClient(function(dbClient) {
             return model.get(dbClient, req.params.id).then(function(d) {
-                if (d.owner !== req.user.id &&
+                if (d.owner !== req.user.developer_org &&
                     req.user.developer < user.DeveloperStatus.ADMIN)
                     throw new Error("Not Authorized");
 
@@ -400,7 +466,7 @@ router.get('/update/:id', user.redirectLogIn, user.requireDeveloper(), function(
         });
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 

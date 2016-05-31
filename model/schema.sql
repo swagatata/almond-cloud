@@ -17,6 +17,17 @@ drop table if exists oauth2_auth_codes cascade;
 drop table if exists users cascade;
 drop table if exists oauth2_clients cascade;
 drop table if exists category;
+drop table if exists organizations cascade;
+
+create table organizations (
+    id integer auto_increment primary key,
+    name varchar(255) not null collate utf8_general_ci,
+    developer_key char(64) unique not null
+) collate = utf8_bin ;
+
+insert into organizations values (
+    1, 'Site Administration', '0243de281cf4892575bef0477c177387fac1883ce4e7dd558eaf0e10777bd194'
+);
 
 create table users (
     id integer auto_increment primary key,
@@ -25,29 +36,28 @@ create table users (
     email varchar(255) not null,
     google_id varchar(255) unique default null,
     facebook_id varchar(255) unique default null,
+    omlet_id varchar(255) unique default null,
     password char(64) default null,
     salt char(64) default null,
     cloud_id char(64) unique not null,
     auth_token char(64) not null,
-    assistant_feed_id varchar(255) default null,
-    developer_key char(64) default null,
+    developer_org int null default null,
     developer_status tinyint not null default 0,
     roles tinyint not null default 0,
-    index developer_key(developer_key),
+    force_separate_process boolean not null default false,
     constraint password_salt check ((password is not null and salt is not null) or
                                     (password is null and salt is null)),
     constraint auth_method check (password is not null or google_id is not null or facebook_id is not null),
-    constraint developer_key check (developer_key is not null or developer_status = 0)
+    foreign key (developer_org) references organizations(id) on update cascade on delete restrict
 ) collate = utf8_bin ;
 
 insert into users values (
-    0, 'root', 'Administrator', 'root@localhost', null, null,
-    'a266940f93a5928c96b50c173c26cad2054c8077e1caa63584dfcfaa4881d2f1',
-    '00832c5af6048c2fc9713722ef0c896202e2f1b30a746394900fb0e8132d958d',
-    '5f9ea96b5ce8c0b1ab675fd1cd614af7e707332ec461cb96fea7a4414202ee02',
-    '6311efb5e042580a3ccd95c6104af72865195fb94045104d6784533b39f77fd6',
-    null,
-    'd381889c8c505fdc20f40903deb18992e9ec9d8f777efda2da38ef2b8d932c01', 3, 1 );
+    1, 'root', 'Administrator', 'root@localhost', null, null, null,
+    'a266940f93a5928c96b50c173c26cad2054c8077e1caa63584dfcfaa4881d2f1', -- password
+    '00832c5af6048c2fc9713722ef0c896202e2f1b30a746394900fb0e8132d958d', -- salt
+    '5f9ea96b5ce8c0b1ab675fd1cd614af7e707332ec461cb96fea7a4414202ee02', -- cloud_id
+    '6311efb5e042580a3ccd95c6104af72865195fb94045104d6784533b39f77fd6', -- auth_token
+    1, 3, 1 );
 
 create table oauth2_clients (
     id char(64) primary key,
@@ -96,7 +106,7 @@ create table device_class (
     fullcode boolean not null default false,
     approved_version integer(11) default null,
     developer_version integer(11) not null default 0,
-    foreign key (owner) references users(id) on update cascade on delete cascade,
+    foreign key (owner) references organizations(id) on update cascade on delete cascade,
     constraint version check (approved_version is null or developer_version >= approved_version)
 ) collate utf8_bin;
 
@@ -111,6 +121,7 @@ create table device_schema_version (
     schema_id integer not null,
     version integer not null,
     types mediumtext not null,
+    meta mediumtext not null,
     primary key(schema_id, version),
     foreign key (schema_id) references device_schema(id) on update cascade on delete cascade
 ) collate utf8_bin;

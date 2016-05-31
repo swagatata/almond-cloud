@@ -12,9 +12,9 @@ require('thingengine-core/lib/polyfill');
 const Q = require('q');
 
 const Frontend = require('./frontend');
-const AssistantDispatcher = require('./assistantdispatcher');
-const EngineManager = require('./enginemanager');
-const WebhookDispatcher = require('./webhookdispatcher');
+const AssistantDispatcher = require('./assistant/dispatcher');
+const EngineManager = require('./lib/enginemanager');
+const WebhookDispatcher = require('./lib/webhookdispatcher');
 
 function dropCaps() {
     if (process.getuid() == 0) {
@@ -58,13 +58,14 @@ function main() {
 
             new WebhookDispatcher();
 
-            console.log('Starting AssistantDispatcher');
-            _assistantdispatcher = new AssistantDispatcher();
-            return _assistantdispatcher.start();
-        }).then(function() {
-            console.log('Starting EngineManager');
             _enginemanager = new EngineManager(_frontend);
+            _assistantdispatcher = new AssistantDispatcher();
+
+            console.log('Starting EngineManager');
             return _enginemanager.start();
+        }).then(function() {
+            console.log('Starting AssistantDispatcher');
+            return _assistantdispatcher.start();
         });
     }).done();
 }

@@ -1,5 +1,8 @@
 extends layout
 
+block scripts
+  script(src='/javascripts/device.js')
+
 block styles
   link(rel='stylesheet', href='/stylesheets/thingpedia-devices.css')
 
@@ -36,7 +39,7 @@ block content
     p
       i This is a builtin interface in every ThingEngine installation.
 
-  if user && user.developer_key
+  if user && user.developer_org !== null
     h2.device-subtitle#device-version Version: 
       if device.approved_version === null
         | none (approved), #{device.developer_version} (developer)
@@ -57,7 +60,15 @@ block content
       span.label.label-default= device.global_name
     for k in device.kinds
       |  
-      span.label.label-default= k.kind
+      a(href='/thingpedia/schemas/by-id/' + k.kind)
+        span.label.label-default= k.kind
+
+  if device.child_types.length > 0
+    h2.device-subtitle Child Types:
+      for k in device.child_types
+        | &#x20;
+        a(href='/thingpedia/schemas/by-id/' + k)
+          span.label.label-default= k
 
   if triggers.length > 0
     h2.device-subtitle Triggers
@@ -70,6 +81,18 @@ block content
             code #{t.name}(#{t.params.join(', ')})
           if t.doc
             | : #{t.doc}
+
+  if queries.length > 0
+    h2.device-subtitle Queries
+    ul.device-channels
+      for q in queries
+        li
+          if q.schema
+            code #{q.name}(#{q.params.map(function(p, i) { return p + ' : ' + q.schema[i]; }).join(', ')})
+          else
+            code #{q.name}(#{q.params.join(', ')})
+          if q.doc
+            | : #{q.doc}
 
   if actions.length > 0
     h2.device-subtitle Actions
@@ -86,8 +109,12 @@ block content
   div.row#device-details-actions
     //div.col-md-2
       a.btn.btn-default.btn-block(href='/thingpedia/apps/by-device/' + device.id) Find Apps
-    if authenticated && (user.developer_status >= 3 || device.owner === user.id)
+    if authenticated && (user.developer_status >= 3 || device.owner === user.developer_org)
       div.col-md-2
         a.btn.btn-warning.btn-block(href='/thingpedia/upload/update/' + device.id) Update
       div.col-md-2
-        a.btn.btn-default.btn-block(href='https://d3hpoqf2ntov6o.cloudfront.net/devices/' + device.primary_kind + '-v' + device.developer_version + '.zip') Download code
+        form(action='/thingpedia/devices/delete/' + device.id, method='post').form-delete-device
+          input(type='hidden',name='_csrf',value=csrfToken)
+          button(type='submit').btn.btn-danger.btn-block Delete
+    div.col-md-2
+      a.btn.btn-default.btn-block(href='https://d1ge76rambtuys.cloudfront.net/devices/' + device.primary_kind + '-v' + device.developer_version + '.zip') Download code

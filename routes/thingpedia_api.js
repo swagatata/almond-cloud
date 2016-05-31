@@ -13,6 +13,7 @@ const db = require('../util/db');
 const device = require('../model/device');
 const app = require('../model/app');
 const user = require('../model/user');
+const organization = require('../model/organization');
 
 const ThingPediaClient = require('../util/thingpedia-client');
 
@@ -56,8 +57,10 @@ function deviceMakeFactory(d) {
     delete d.code;
     if (ast.auth.type === 'builtin') {
         d.factory = null;
-    } else if (ast.auth.type === 'oauth2' ||
-        (Object.keys(ast.params).length === 0 && ast.auth.type === 'none')) {
+    } else if (ast.auth.type === 'none' &&
+               Object.keys(ast.params).length === 0) {
+        d.factory = ({ type: 'none', text: d.name });
+    } else if (ast.auth.type === 'oauth2') {
         d.factory = ({ type: 'oauth2', text: d.name });
     } else {
         d.factory = ({ type: 'form',
@@ -70,7 +73,7 @@ function deviceMakeFactory(d) {
 }
 
 router.get('/devices', function(req, res) {
-    if (req.query.class && ['online', 'physical'].indexOf(req.query.class) < 0) {
+    if (req.query.class && ['online', 'physical', 'data'].indexOf(req.query.class) < 0) {
         res.status(404).json("Invalid device class");
         return;
     }
@@ -80,26 +83,30 @@ router.get('/devices', function(req, res) {
             var developerKey = req.query.developer_key;
 
             if (developerKey)
-                return user.getByDeveloperKey(dbClient, developerKey);
+                return organization.getByDeveloperKey(dbClient, developerKey);
             else
                 return [];
-        }).then(function(developers) {
-            var developer = null;
-            if (developers.length > 0)
-                developer = developers[0];
+        }).then(function(orgs) {
+            var org = null;
+            if (orgs.length > 0)
+                org = orgs[0];
 
             var devices;
             if (req.query.class) {
                 if (req.query.class === 'online')
                     devices = device.getAllApprovedWithKindWithCode(dbClient,
                                                                     'online-account',
-                                                                    developer);
+                                                                    org);
+                else if (req.query.class === 'data')
+                    devices = device.getAllApprovedWithKindWithCode(dbClient,
+                                                                    'data-source',
+                                                                    org);
                 else
-                    devices = device.getAllApprovedWithoutKindWithCode(dbClient,
-                                                                       'online-account',
-                                                                       developer);
+                    devices = device.getAllApprovedWithoutKindsWithCode(dbClient,
+                                                                        ['online-account','data-source'],
+                                                                        org);
             } else {
-                devices = device.getAllApprovedWithCode(dbClient, developer);
+                devices = device.getAllApprovedWithCode(dbClient, org);
             }
 
             return devices.then(function(devices) {

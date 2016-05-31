@@ -13,14 +13,15 @@ const crypto = require('crypto');
 
 const user = require('../util/user');
 const model = require('../model/user');
+const organization = require('../model/organization');
 const db = require('../util/db');
 
 function makeRandom() {
     return crypto.randomBytes(32).toString('hex');
 }
 
-const EngineManager = require('../enginemanager');
-const AssistantDispatcher = require('../assistantdispatcher');
+const EngineManager = require('../lib/enginemanager');
+const AssistantDispatcher = require('../assistant/dispatcher');
 
 var router = express.Router();
 
@@ -32,6 +33,7 @@ router.get('/', user.redirectRole(user.Role.ADMIN), function(req, res) {
     }).then(function(users) {
         users.forEach(function(u) {
             u.isRunning = engineManager.isRunning(u.id);
+            u.engineId = u.isRunning ? engineManager.getProcessId(u.id) : null;
         });
 
         res.render('admin_user_list', { page_title: "ThingPedia - Administration",
@@ -62,7 +64,7 @@ router.post('/start-user/:id', user.requireRole(user.Role.ADMIN), function(req, 
         res.redirect(303, '/admin');
     }).catch(function(e) {
         res.status(500).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
@@ -93,28 +95,35 @@ router.post('/delete-user/:id', user.requireRole(user.Role.ADMIN), function(req,
         res.redirect(303, '/admin');
     }).catch(function(e) {
         res.status(500).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
 router.post('/promote-user/:id', user.requireRole(user.Role.ADMIN), function(req, res) {
+    var needsRestart = false;
+
     db.withTransaction(function(dbClient) {
         return model.get(dbClient, req.params.id).then(function(user) {
             if (user.developer_status >= 3)
                 return;
 
             if (user.developer_status == 0) {
-                return model.update(dbClient, user.id, { developer_status: 1,
-                                                         developer_key: makeRandom() });
+                needsRestart = true;
+                return organization.create(dbClient, { name: '', developer_key: makeRandom() }).then(function(org) {
+                    return model.update(dbClient, user.id, { developer_status: 1,
+                                                             developer_org: org.id });
+                });
             } else {
                 return model.update(dbClient, user.id, { developer_status: user.developer_status + 1 });
             }
         });
     }).then(function() {
+        if (needsRestart)
+            EngineManager.get().restartUser(req.params.id);
         res.redirect(303, '/admin');
     }).catch(function(e) {
         res.status(500).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
@@ -125,33 +134,49 @@ router.post('/demote-user/:id', user.requireRole(user.Role.ADMIN), function(req,
         return;
     }
 
+    var needsRestart = false;
     db.withTransaction(function(dbClient) {
         return model.get(dbClient, req.params.id).then(function(user) {
             if (user.developer_status <= 0)
                 return;
 
-            if (user.developer_status == 1)
-                return model.update(dbClient, user.id, { developer_status: 0, developer_key: null });
-            else
+            if (user.developer_status == 1) {
+                needsRestart = true;
+                return model.update(dbClient, user.id, { developer_status: 0, developer_org: null });
+            } else {
                 return model.update(dbClient, user.id, { developer_status: user.developer_status - 1 });
+            }
         });
     }).then(function() {
+        if (needsRestart)
+            EngineManager.get().restartUser(req.params.id);
         res.redirect(303, '/admin');
     }).catch(function(e) {
         res.status(500).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
 router.post('/message-user/:id', user.requireRole(user.Role.ADMIN), function(req, res) {
     Q.try(function() {
-        var feed = AssistantDispatcher.get().getUserFeed(req.params.id);
-        return feed.send('Administrative message from ' + req.user.username + ': ' + req.body.body);
+        return db.withClient(function(dbClient) {
+            return model.get(dbClient, req.params.id);
+        }).then(function(user) {
+            if (user.omlet_id === null)
+                throw new Error('User has no Omlet Account');
+            return AssistantDispatcher.get().getOrCreateFeedForUser(user.omlet_id);
+        }).then(function(feed) {
+            return feed.open().then(function() {
+                return feed.sendText('Administrative message from ' + req.user.username + ': ' + req.body.body);
+            }).finally(function() {
+                return feed.close();
+            });
+        });
     }).then(function() {
         res.redirect(303, '/admin');
     }).catch(function(e) {
         res.status(500).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
@@ -165,7 +190,7 @@ router.post('/message-broadcast', user.requireRole(user.Role.ADMIN), function(re
         res.redirect('/admin');
     }).catch(function(e) {
         res.status(500).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 

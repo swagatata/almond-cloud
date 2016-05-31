@@ -14,10 +14,10 @@ const user = require('../util/user');
 const userModel = require('../model/user');
 const feeds = require('../shared/util/feeds');
 const thingpediaApps = require('../model/app');
-const EngineManager = require('../enginemanager');
+const EngineManager = require('../lib/enginemanager');
 
 const ThingTalk = require('thingtalk');
-const AppCompiler = ThingTalk.Compiler;
+const AppGrammar = ThingTalk.Grammar;
 
 var router = express.Router();
 
@@ -25,10 +25,9 @@ function getAllApps(engine) {
     return engine.apps.getAllApps().then(function(apps) {
         return Q.all(apps.map(function(a) {
             return Q.all([a.uniqueId, a.name, a.isRunning, a.isEnabled,
-                          a.currentTier, a.state, a.error])
+                          a.state, a.error])
                 .spread(function(uniqueId, name, isRunning,
-                                 isEnabled, currentTier, state,
-                                 error) {
+                                 isEnabled, state, error) {
                     return Q.try(function() {
                         if (state.$F) {
                             return engine.messaging.getFeedMeta(state.$F).then(function(f) {
@@ -40,7 +39,6 @@ function getAllApps(engine) {
                     }).then(function(feed) {
                         var app = { uniqueId: uniqueId, name: name || "Some app",
                                     running: isRunning, enabled: isEnabled,
-                                    currentTier: currentTier,
                                     state: state, error: error, feed: feed };
                         return app;
                     });
@@ -65,21 +63,27 @@ function getMyThingpediaApps(req) {
 function getAllDevices(engine) {
     return engine.devices.getAllDevices().then(function(devices) {
         return Q.all(devices.map(function(d) {
-            return Q.all([d.uniqueId, d.name, d.description, d.state, d.ownerTier,
+            return Q.all([d.uniqueId, d.name, d.description, d.kind, d.ownerTier,
                           d.checkAvailable(),
+                          d.isTransient,
                           d.hasKind('online-account'),
+                          d.hasKind('data-source'),
                           d.hasKind('thingengine-system')])
-                .spread(function(uniqueId, name, description, state,
+                .spread(function(uniqueId, name, description, kind,
                                  ownerTier,
                                  available,
+                                 isTransient,
                                  isOnlineAccount,
+                                 isDataSource,
                                  isThingEngine) {
                     return { uniqueId: uniqueId, name: name || "Unknown device",
                              description: description || "Description not available",
-                             kind: state.kind,
+                             kind: kind,
                              ownerTier: ownerTier,
                              available: available,
+                             isTransient: isTransient,
                              isOnlineAccount: isOnlineAccount,
+                             isDataSource: isDataSource,
                              isThingEngine: isThingEngine };
                 });
         }));
@@ -106,9 +110,11 @@ router.get('/', user.redirectLogIn, function(req, res) {
 
         return [apps, devices, thingpediaApps];
     }).spread(function(appinfo, devinfo, thingpediaAppinfo) {
-        var physical = [], online = [];
+        var physical = [], online = [], datasource = [];
         devinfo.forEach(function(d) {
-            if (d.isOnlineAccount)
+            if (d.isDataSource)
+                datasource.push(d);
+            else if (d.isOnlineAccount)
                 online.push(d);
             else
                 physical.push(d);
@@ -127,36 +133,14 @@ router.get('/', user.redirectLogIn, function(req, res) {
                                  apps: appinfo,
                                  thingpediaVisible: visible,
                                  thingpediaInvisible: invisible,
+                                 datasourceDevices: datasource,
                                  physicalDevices: physical,
                                  onlineDevices: online,
                                 });
     }).catch(function(e) {
         console.log(e.stack);
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
-    }).done();
-});
-
-function appsCreate(error, req, res) {
-    return EngineManager.get().getEngine(req.user.id).then(function(engine) {
-        return feeds.getFeedList(engine, true);
-    }).then(function(feeds) {
-        res.render('apps_create', { page_title: 'ThingEngine - create app',
-                                    csrfToken: req.csrfToken(),
-                                    error: error,
-                                    code: req.body.code,
-                                    parameters: req.body.params || '{}',
-                                    tier: req.body.tier || 'cloud',
-                                    omlet: { feeds: feeds,
-                                             feedId: req.body.feedId }
-                                  });
-    });
-}
-
-router.get('/create', user.redirectLogIn, function(req, res, next) {
-    appsCreate(undefined, req, res).catch(function(e) {
-        res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
@@ -165,53 +149,38 @@ router.post('/create', user.requireLogIn, function(req, res, next) {
     var code = req.body.code;
     var name = req.body.name;
     var description = req.body.description;
-    var state, tier;
+    var state;
+    var ast;
 
     Q.try(function() {
         return EngineManager.get().getEngine(req.user.id).then(function(engine) {
-            compiler = new AppCompiler();
+            // sanity check the app
+            ast = AppGrammar.parse(code);
+            var state = JSON.parse(req.body.params);
+            if (ast.name.feedAccess) {
+                if (!state.$F && !req.body.feedId)
+                    throw new Error('Missing feed for feed-shared app');
+                if (!state.$F)
+                    state.$F = req.body.feedId;
+            } else {
+                delete state.$F;
+            }
 
-            return engine.devices.schemas.then(function(schemaRetriever) {
-                compiler.setSchemaRetriever(schemaRetriever);
-
-                return Q.try(function() {
-                    // sanity check the app
-                    return compiler.compileCode(code);
-                }).then(function() {
-                    state = JSON.parse(req.body.params);
-                    if (compiler.feedAccess) {
-                        if (!state.$F && !req.body.feedId)
-                            throw new Error('Missing feed for feed-shared app');
-                        if (!state.$F)
-                            state.$F = req.body.feedId;
-                    } else {
-                        delete state.$F;
-                    }
-
-                    tier = req.body.tier;
-                    if (tier !== 'server' && tier !== 'cloud' && tier !== 'phone')
-                        throw new Error('No such tier ' + tier);
-                })
-            }).then(function() {
-                return engine.apps.loadOneApp(code, state, null, tier,
-                                              name, description, true);
-            });
+            return engine.apps.loadOneApp(code, state, null, undefined,
+                                          name, description, true);
         }).then(function() {
-            if (compiler.feedAccess && !req.query.shared) {
+            if (ast.name.feedAccess && !req.query.shared) {
                 req.flash('app-message', "Application successfully created");
-                req.flash('share-apps', 'app-' + compiler.name + state.$F.replace(/[^a-zA-Z0-9]+/g, '-'));
+                req.flash('share-apps', 'app-' + ast.name.name + state.$F.replace(/[^a-zA-Z0-9]+/g, '-'));
                 res.redirect(303, '/apps');
             } else {
                 req.flash('app-message', "Application successfully created");
                 res.redirect(303, '/apps');
             }
-        }).catch(function(e) {
-            console.log(e.stack);
-            return appsCreate(e.message, req, res);
         });
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
@@ -232,7 +201,7 @@ router.post('/delete', user.requireLogIn, function(req, res, next) {
         res.redirect(303, '/apps');
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
@@ -253,7 +222,7 @@ router.post('/share', user.requireLogIn, function(req, res, next) {
         res.redirect(303, '/apps');
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
@@ -279,7 +248,7 @@ router.get('/:id/publish', user.redirectLogIn, function(req, res, next) {
             });
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
@@ -321,7 +290,7 @@ router.get('/:id/results', user.redirectLogIn, function(req, res, next) {
     }).catch(function(e) {
         console.log(e.stack);
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
@@ -366,7 +335,7 @@ router.get('/shared/:cloudId/:appId/:feedId', user.redirectLogIn, function(req, 
         });
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 

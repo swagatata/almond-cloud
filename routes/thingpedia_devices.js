@@ -13,9 +13,9 @@ const passport = require('passport');
 const db = require('../util/db');
 const model = require('../model/device');
 const user = require('../util/user');
-const userModel = require('../model/user');
+const organization = require('../model/organization');
 
-const EngineManager = require('../enginemanager');
+const EngineManager = require('../lib/enginemanager');
 
 var router = express.Router();
 
@@ -30,6 +30,7 @@ router.get('/', function(req, res) {
     db.withClient(function(client) {
         return model.getAll(client, page * 18, 18).then(function(devices) {
             res.render('thingpedia_dev_portal', { page_title: "ThingPedia Developer Portal",
+                                                  csrfToken: req.csrfToken(),
                                                   devices: devices,
                                                   page_num: page,
                                                   isRunning: (req.user ? EngineManager.get().isRunning(req.user.id) : false) });
@@ -45,17 +46,10 @@ function getDetails(fn, param, req, res) {
                     .then(function(kinds) { d.kinds = kinds; });
             }).tap(function(d) {
                 return Q.try(function() {
-                    if (!req.user || !req.user.developer_key)
-                        return model.getApprovedCode(client, d.id);
-                    if (req.user.id === d.owner)
+                    if (req.user && req.user.developer_org === d.owner)
                         return model.getDeveloperCode(client, d.id);
-
-                    return userModel.getByDeveloperKey(client, req.user.developer_key)
-                        .then(function(developers) {
-                            if (developers.length == 0 || developers[0].id !== d.owner)
-                                return model.getApprovedCode(client, d.id);
-                            return model.getDeveloperCode(client, d.id);
-                        });
+                    else
+                        return model.getApprovedCode(client, d.id);
                 }).then(function(row) { d.code = row.code; })
                 .catch(function(e) { d.code = null; });
             });
@@ -67,9 +61,12 @@ function getDetails(fn, param, req, res) {
             else
                 title = "ThingPedia - Device details";
 
-            var triggers = [], actions = [];
+            d.child_types = [];
+            var triggers = [], actions = [], queries = [];
             try {
                 var ast = JSON.parse(d.code);
+                d.child_types = ast['child-types'] || [];
+
                 if (ast.triggers) {
                     for (var t in ast.triggers) {
                         var obj = {
@@ -102,6 +99,22 @@ function getDetails(fn, param, req, res) {
                         actions.push(obj);
                     }
                 }
+                if (ast.queries) {
+                    for (var q in ast.queries) {
+                        var obj = {
+                            name: q
+                        };
+                        if (ast.queries[q].params)
+                            obj.params = ast.queries[q].params;
+                        else if (ast.queries[q].args)
+                            obj.params = ast.queries[q].args;
+                        else
+                            obj.params = [];
+                        obj.schema = ast.queries[q].schema;
+                        obj.doc = ast.queries[q].doc;
+                        queries.push(obj);
+                    }
+                }
             } catch(e) {}
 
             res.render('thingpedia_device_details', { page_title: title,
@@ -109,11 +122,12 @@ function getDetails(fn, param, req, res) {
                                                       device: d,
                                                       triggers: triggers,
                                                       actions: actions,
+                                                      queries: queries,
                                                       online: online });
         });
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 }
 
@@ -141,6 +155,25 @@ router.post('/approve/:id', user.requireLogIn, user.requireDeveloper(user.Develo
         return model.approve(dbClient, req.params.id);
     }).then(function() {
         res.redirect('/thingpedia/devices/details/' + req.params.id);
+    }).catch(function(e) {
+        res.status(400).render('error', { page_title: "ThingPedia - Error",
+                                          message: e });
+    }).done();
+});
+
+router.post('/delete/:id', user.requireLogIn, user.requireDeveloper(),  function(req, res) {
+    db.withTransaction(function(dbClient) {
+        return model.get(dbClient, req.params.id).then(function(row) {
+            if (row.owner !== req.user.developer_org && req.user.developer_status < user.DeveloperStatus.ADMIN) {
+                res.status(403).render('error', { page_title: "ThingPedia - Error",
+                                                  message: "Not Authorized" });
+                return;
+            }
+
+            return model.delete(dbClient, req.params.id).then(function() {
+                res.redirect(303, '/thingpedia/devices');
+            });
+        });
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
                                           message: e.message });

@@ -13,35 +13,27 @@ const passport = require('passport');
 const db = require('../util/db');
 const model = require('../model/user');
 const user = require('../util/user');
-const EngineManager = require('../enginemanager');
-const AssistantDispatcher = require('../assistantdispatcher');
+const EngineManager = require('../lib/enginemanager');
+const AssistantDispatcher = require('../assistant/dispatcher');
 
 var router = express.Router();
 
 router.get('/create', user.redirectLogIn, function(req, res, next) {
-    if (req.query.class && ['online', 'physical'].indexOf(req.query.class) < 0) {
+    if (req.query.class && ['online', 'physical', 'data'].indexOf(req.query.class) < 0) {
         res.status(404).render('error', { page_title: "ThingPedia - Error",
                                           message: "Invalid device class" });
         return;
     }
 
-    var online = req.query.class === 'online';
-
     res.render('devices_create', { page_title: 'ThingEngine - configure device',
                                    csrfToken: req.csrfToken(),
                                    developerKey: req.user.developer_key,
-                                   onlineAccounts: online,
+                                   klass: req.query.class,
                                    ownTier: 'cloud',
                                  });
 });
 
 router.post('/create', user.requireLogIn, function(req, res, next) {
-    if (req.query.class && ['online', 'physical'].indexOf(req.query.class) < 0) {
-        res.status(404).render('error', { page_title: "ThingPedia - Error",
-                                          message: "Invalid device class" });
-        return;
-    }
-
     EngineManager.get().getEngine(req.user.id).then(function(engine) {
         var devices = engine.devices;
 
@@ -60,17 +52,11 @@ router.post('/create', user.requireLogIn, function(req, res, next) {
         }
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
 router.post('/delete', user.requireLogIn, function(req, res, next) {
-    if (req.query.class && ['online', 'physical'].indexOf(req.query.class) < 0) {
-        res.status(404).render('error', { page_title: "ThingPedia - Error",
-                                          message: "Invalid device class" });
-        return;
-    }
-
     EngineManager.get().getEngine(req.user.id).then(function(engine) {
         var id = req.body.id;
         if (!engine.devices.hasDevice(id)) {
@@ -95,7 +81,7 @@ router.post('/delete', user.requireLogIn, function(req, res, next) {
         }
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
@@ -104,10 +90,7 @@ router.get('/oauth2/com.google', user.redirectLogIn, function(req, res, next) {
     req.session.redirect_to = '/apps';
     next();
 }, passport.authorize('google', {
-    scope: 'openid profile email' +
-        ' https://www.googleapis.com/auth/fitness.activity.read' +
-        ' https://www.googleapis.com/auth/fitness.location.read' +
-        ' https://www.googleapis.com/auth/fitness.body.read',
+    scope: user.GOOGLE_SCOPES,
     failureRedirect: '/apps',
     successRedirect: '/apps'
 }));
@@ -117,7 +100,7 @@ router.get('/oauth2/com.facebook', user.redirectLogIn, function(req, res, next) 
     req.session.redirect_to = '/apps';
     next();
 }, passport.authorize('facebook', {
-    scope: 'public_profile email',
+    scope: user.FACEBOOK_SCOPES,
     failureRedirect: '/apps',
     successRedirect: '/apps'
 }));
@@ -141,14 +124,12 @@ router.get('/oauth2/:kind', user.redirectLogIn, function(req, res, next) {
         }
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
 // special case omlet to create the assistant right away
 router.get('/oauth2/callback/org.thingpedia.builtin.omlet', user.redirectLogIn, function(req, res, next) {
-    var kind = req.params.kind;
-
     EngineManager.get().getEngine(req.user.id).then(function(engine) {
         return engine.devices.factory.then(function(devFactory) {
             var saneReq = {
@@ -166,12 +147,13 @@ router.get('/oauth2/callback/org.thingpedia.builtin.omlet', user.redirectLogIn, 
             return engine.messaging.getOwnId();
         }).then(function(ownId) {
             return engine.messaging.getAccountById(ownId);
-        }).then(function(account) {
-            return AssistantDispatcher.get().createFeedForEngine(req.user.id, engine, account);
+        }).tap(function(omletId) {
+            EngineManager.get().addOmletToUser(req.user.id, omletId);
+            return AssistantDispatcher.get().getOrCreateFeedForUser(omletId);
         });
-    }).then(function(feedId) {
+    }).then(function(omletId) {
         return db.withTransaction(function(dbClient) {
-            return model.update(dbClient, req.user.id, { assistant_feed_id: feedId });
+            return model.update(dbClient, req.user.id, { omlet_id: omletId });
         });
     }).then(function() {
         if (req.session['device-redirect-to']) {
@@ -183,7 +165,7 @@ router.get('/oauth2/callback/org.thingpedia.builtin.omlet', user.redirectLogIn, 
     }).catch(function(e) {
         console.log(e.stack);
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 
@@ -213,7 +195,7 @@ router.get('/oauth2/callback/:kind', user.redirectLogIn, function(req, res, next
         }
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     }).done();
 });
 

@@ -1,19 +1,11 @@
-all:
-	git submodule update --init --recursive
-	make -C node_modules/thingengine-core all
-	make -C node_modules/sabrina all-nosempre
-	cd node_modules/thingpedia ; npm install --no-optional --only=prod
-	cd node_modules/thingpedia-client ; npm install --no-optional --only=prod
-	cd node_modules/thingpedia-discovery ; npm install --no-optional --only=prod
-	cd node_modules/thingpedia-builtins ; npm install --no-optional --only=prod
-	cd node_modules/thingtalk ; npm install --no-optional --only=prod
-	# remove duplicate copy of thingtalk
-	# we cannot rely on npm dedupe because we're playing submodule tricks
-	rm -fr node_modules/sabrina/node_modules/thingtalk
-	# remove duplicate copy of omclient
-	# we cannot rely on npm dedupe because it's a tarball module and it craps itself
-	rm -fr node_modules/thingpedia-builtins/node_modules/omclient
-	npm install
+prefix ?= /opt/thingengine
+localstatedir ?= /srv/thingengine
+
+SUBMODULE_DEPS = thingengine-core sabrina thingpedia thingpedia-discovery thingtalk
+
+all: $(SUBMODULE_DEPS) platform_config.js
+	make -C sandbox prefix=$(prefix) localstatedir=$(localstatedir) all
+	npm install --only=prod
 	npm dedupe
 	make database
 
@@ -23,23 +15,10 @@ database:
 database-force:
 	mysql -u root -p < model/schema.sql
 
-SUBDIRS = model util public routes views node_modules/
-our_sources = main.js frontend.js instance/platform.js instance/runengine.js platform_config.js
+.PHONY: $(SUBMODULE_DEPS)
 
-# Note the / after engine, forces symlink resolution
-install: all
-	install -m 0755 -d $(DESTDIR)$(prefix)
-	for d in $(SUBDIRS) ; do cp -pr $$d/ $(DESTDIR)$(prefix) ; done
-	install -m 0644 $(our_sources) $(DESTDIR)$(prefix)
+$(SUBMODULE_DEPS):
+	cd node_modules/$(notdir $@) ; npm install --only=prod
 
-clean:
-	make -C node_modules/thingengine-core clean
-	make -C node_modules/sabrina clean
-
-run:
-	test -d ./home || mkdir ./home ;
-	cd ./home ; node ../main.js
-
-reset:
-	rm -fr ./home
-	make database-force
+platform_config.js:
+	echo "exports.PKGLIBDIR = '$(prefix)'; exports.LOCALSTATEDIR = '$(localstatedir)';" > platform_config.js

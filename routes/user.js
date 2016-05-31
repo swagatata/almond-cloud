@@ -17,16 +17,12 @@ const db = require('../util/db');
 
 var TITLE = "ThingPedia";
 
-const EngineManager = require('../enginemanager');
+const EngineManager = require('../lib/enginemanager');
 
 var router = express.Router();
 
 router.get('/oauth2/google', passport.authenticate('google', {
-    scope: (['openid','profile','email',
-             'https://www.googleapis.com/auth/fitness.activity.read',
-             'https://www.googleapis.com/auth/fitness.location.read',
-             'https://www.googleapis.com/auth/fitness.body.read']
-            .join(' '))
+    scope: user.GOOGLE_SCOPES,
 }));
 router.get('/oauth2/google/callback', passport.authenticate('google'),
            function(req, res, next) {
@@ -48,7 +44,7 @@ router.get('/oauth2/google/callback', passport.authenticate('google'),
            });
 
 router.get('/oauth2/facebook', passport.authenticate('facebook', {
-    scope: 'public_profile email'
+    scope: user.FACEBOOK_SCOPES,
 }));
 router.get('/oauth2/facebook/callback', passport.authenticate('facebook'),
            function(req, res, next) {
@@ -126,7 +122,7 @@ router.post('/register', function(req, res, next) {
         res.render('register', {
             csrfToken: req.csrfToken(),
             page_title: "ThingPedia - Register",
-            error: e.message
+            error: e
         });
         return;
     }
@@ -149,7 +145,7 @@ router.post('/register', function(req, res, next) {
         res.render('register', {
             csrfToken: req.csrfToken(),
             page_title: "ThingPedia - Register",
-            error: error.message });
+            error: error });
     }).done();
 });
 
@@ -159,7 +155,7 @@ router.get('/logout', function(req, res, next) {
     res.redirect(303, '/');
 });
 
-function getProfile(req, res, error) {
+function getProfile(req, res, pwError, profileError) {
     return EngineManager.get().getEngine(req.user.id).then(function(engine) {
         return Q.all([engine.devices.getDevice('thingengine-own-server'),
                       engine.devices.getDevice('thingengine-own-phone')]);
@@ -192,17 +188,18 @@ function getProfile(req, res, error) {
 
         res.render('user_profile', { page_title: "ThingPedia - User Profile",
                                      csrfToken: req.csrfToken(),
-                                     error: error,
+                                     pw_error: pwError,
+                                     profile_error: profileError,
                                      server: server,
                                      phone: phone });
     }).catch(function(e) {
         res.status(400).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     });
 }
 
 router.get('/profile', user.redirectLogIn, function(req, res, next) {
-    getProfile(req, res, undefined).done();
+    getProfile(req, res, undefined, undefined).done();
 });
 
 router.post('/profile', user.requireLogIn, function(req, res, next) {
@@ -211,22 +208,17 @@ router.post('/profile', user.requireLogIn, function(req, res, next) {
             req.body.username.length == 0 ||
             req.body.username.length > 255)
             req.body.username = req.user.username;
-        // don't allow developers to change their own developer key
-        if (req.user.developer_status > 0)
-            req.body.developer_key = req.user.developer_key;
-        if (!req.body.developer_key)
-            req.body.developer_key = null;
 
         return model.update(dbClient, req.user.id,
                             { username: req.body.username,
-                              human_name: req.body.human_name,
-                              developer_key: req.body.developer_key });
+                              human_name: req.body.human_name });
     }).then(function() {
         req.user.username = req.body.username;
         req.user.human_name = req.body.human_name;
-        req.user.developer_key = req.body.developer_key;
     }).then(function() {
-        return getProfile(req, res, undefined);
+        return getProfile(req, res, undefined, undefined);
+    }).catch(function(error) {
+        return getProfile(req, res, undefined, error);
     }).done();
 });
 
@@ -254,7 +246,7 @@ router.post('/change-password', user.requireLogIn, function(req, res, next) {
             res.redirect(303, '/user/profile');
         });
     }).catch(function(e) {
-        return getProfile(req, res, e.message);
+        return getProfile(req, res, e, undefined);
     }).done();
 });
 
@@ -336,7 +328,7 @@ router.post('/request-developer', user.requireLogIn, function(req, res, next) {
         res.render('developer_access_ok', { page_title: "ThingPedia - developer access required" });
     }).catch(function(e) {
         res.status(500).render('error', { page_title: "ThingPedia - Error",
-                                          message: e.message });
+                                          message: e });
     });
 });
 

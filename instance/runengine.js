@@ -5,106 +5,134 @@
 // Copyright 2015 Giovanni Campagna <gcampagn@cs.stanford.edu>
 //
 // See COPYING for details
+"use strict";
 
 const Q = require('q');
-const lang = require('lang');
 const events = require('events');
+const stream = require('stream');
 const rpc = require('transparent-rpc');
 
 const Engine = require('thingengine-core');
+const Assistant = require('./assistant');
+const PlatformModule = require('./platform');
 
-const ParentProcessSocket = new lang.Class({
-    Name: 'ParentProcessSocket',
-    Extends: events.EventEmitter,
-
-    _init: function() {
-        events.EventEmitter.call(this);
+class ParentProcessSocket extends stream.Duplex {
+    constructor() {
+        super({ objectMode: true });
 
         process.on('message', function(message) {
             if (message.type !== 'rpc')
                 return;
 
-            this.emit('data', message.data);
+            this.push(message.data);
         }.bind(this));
-    },
-
-    setEncoding: function() {},
-
-    end: function() {
-        this.emit('end');
-    },
-
-    close: function() {
-        this.emit('close', false);
-    },
-
-    write: function(data, encoding, callback) {
-        process.send({type: 'rpc', data: data }, null, callback);
     }
-});
 
-function runEngine() {
-    global.platform = require('./platform');
+    _read() {}
 
-    var engine;
-    var rpcSocket;
-    var earlyStop = false;
-    var engineRunning = false;
-    var rpcReady = Q.defer();
-
-    function handleSignal() {
-        if (engineRunning)
-            engine.stop();
-        else
-            earlyStop = true;
+    _write(data, encoding, callback) {
+        process.send({ type: 'rpc', data: data }, null, callback);
     }
+}
+
+var _engines = [];
+var _stopped = false;
+
+function handleSignal() {
+    _engines.forEach(function(obj) {
+        console.log('Stopping engine of ' + obj.cloudId);
+        if (obj.running)
+            obj.engine.stop();
+    });
+
+    _stopped = true;
+    if (process.connected)
+        process.disconnect();
+
+    // give ourselves 10s to die gracefully, then just exit
+    setTimeout(function() {
+        process.exit();
+    }, 10000);
+}
+
+function runEngine(cloudId, authToken, developerKey, thingpediaClient) {
+    var platform = PlatformModule.newInstance(cloudId, authToken, developerKey, thingpediaClient);
+    if (!PlatformModule.shared)
+        global.platform = platform;
+
+    return platform.start().then(function() {
+        var engine = new Engine(platform);
+        engine.assistant = new Assistant(engine);
+
+        var obj = { cloudId: cloudId, engine: engine, running: false };
+        engine.open().then(function() {
+            obj.running = true;
+            engine.assistant.start().done();
+
+            if (_stopped)
+                return engine.close();
+            _engines.push(obj);
+            return engine.run();
+        }).then(function() {
+            engine.assistant.stop().done();
+            return engine.close();
+        }).catch(function(e) {
+            console.error('Engine ' + cloudId + ' had a fatal error: ' + e.message);
+            console.error(e.stack);
+        }).done();
+
+        return [engine, platform.getCapability('webhook-api')];
+    });
+}
+
+function killEngine(cloudId) {
+    var idx = -1;
+    for (var i = 0; i < _engines.length; i++) {
+        if (_engines[i].cloudId === cloudId) {
+            idx = i;
+            break;
+        }
+    }
+
+    if (idx < 0)
+        return;
+    var obj = _engines[idx];
+    _engines.splice(idx, 1);
+    obj.engine.stop();
+}
+
+function main() {
+    var shared = (process.argv[2] === '--shared');
+
+    // for compat with platform.getOrigin()
+    // (but not platform.getCapability())
+    if (shared)
+        global.platform = PlatformModule;
+
     process.on('SIGINT', handleSignal);
     process.on('SIGTERM', handleSignal);
 
     var socket = new ParentProcessSocket();
-    rpcSocket = new rpc.Socket(socket);
+    var rpcSocket = new rpc.Socket(socket);
     process.on('message', function(message, socket) {
-        switch(message.type) {
-        case 'rpc-ready':
-            rpcReady.resolve(message.id);
-            break;
+        if (message.type !== 'websocket')
+            return;
 
-        case 'websocket':
-            platform._getPrivateFeature('websocket-handler')
-                .handle(message, socket);
-            break;
-
-        default:
-            break;
-        }
+        PlatformModule.dispatcher.handleWebsocket(message.cloudId, message.req, message.upgradeHead, socket);
     });
 
-    platform.init().then(function() {
-        return rpcReady.promise.then(function(rpcId) {
-            console.log('RPC channel ready');
-            return rpcSocket.call(rpcId, 'getThingPediaClient', []).then(function(client) {
-                console.log('Obtained ThingPedia client');
-                platform._setPrivateFeature('thingpedia-client', client);
-                rpcSocket.call(rpcId, 'setWebhookClient', [platform.getCapability('webhook-api')]);
+    var factory = {
+        $rpcMethods: ['runEngine', 'killEngine'],
 
-                engine = new Engine();
+        runEngine: runEngine,
+        killEngine: killEngine,
+    };
+    var rpcId = rpcSocket.addStub(factory);
+    PlatformModule.init(shared);
+    process.send({ type:'rpc-ready', id: rpcId });
 
-                return engine.open().then(function() {
-                    engineRunning = true;
-                    rpcSocket.call(rpcId, 'setEngine', [engine]).done();
-
-                    if (earlyStop)
-                        return;
-                    return engine.run().finally(function() {
-                        return engine.close();
-                    });
-                });
-            });
-        });
-    }).then(function () {
-        console.log('Cleaning up');
-        platform.exit();
-    }).done();
+    // wait 10000 seconds for a newEngine message
+    setTimeout(function() {}, 10000);
 }
 
-runEngine();
+main();

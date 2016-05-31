@@ -13,6 +13,22 @@ block content
       h2.panel-title Personal information
 
     div.panel-body
+      if profile_error
+        div.alert.alert-danger.alert-dismissible.fade.in(role='alert')
+          button(type='button', data-dismiss='alert', aria-label="Close").close
+            span(aria-hidden='true') ×
+          if typeof profile_error === 'string'
+            p= profile_error
+          else if profile_error.name === 'SyntaxError'
+            if profile_error.location
+              p Syntax error at line #{profile_error.location.start.line} column #{profile_error.location.start.column}: #{profile_error.message}
+            else
+              p Syntax error at #{profile_error.fileName} line #{profile_error.lineNumber}: #{profile_error.message}
+          else if profile_error.message
+            p= profile_error.message
+          else
+            p= String(profile_error)
+
       form(action='/user/profile',method='post',data-toggle='validator')
         input(type='hidden',name='_csrf',value=csrfToken)
 
@@ -48,16 +64,10 @@ block content
 
         div.form-group
           label.control-label(for='developer-key') ThingPedia Developer Key
-          if user.developer_status > 0
-            p.form-control-static= user.developer_key
-            span.help-block
-              | You can use this developer key in other ThingEngines (such as one you&apos;re running
-              | locally for testing) to access your devices before they are approved.
-          else
-            input(type='text', name='developer_key',value=user.developer_key).form-control#developer-key
-            span.help-block
-              | You can use the developer key of some other user to access his interfaces before they
-              | are approved.
+          p.form-control-static= user.developer_key
+          span.help-block
+            | You can use this developer key in other ThingEngines (such as one you&apos;re running
+            | locally for testing) to access your devices before they are approved.
 
         div.form-group
           button(type='submit').btn.btn-primary Update profile
@@ -67,11 +77,21 @@ block content
       h2.panel-title Access information
 
     div.panel-body
-      if error
+      if pw_error
         div.alert.alert-danger.alert-dismissible.fade.in(role='alert')
           button(type='button', data-dismiss='alert', aria-label="Close").close
             span(aria-hidden='true') ×
-          p= error
+          if typeof pw_error === 'string'
+            p= pw_error
+          else if pw_error.name === 'SyntaxError'
+            if pw_error.location
+              p Syntax error at line #{pw_error.location.start.line} column #{pw_error.location.start.column}: #{pw_error.message}
+            else
+              p Syntax error at #{pw_error.fileName} line #{pw_error.lineNumber}: #{pw_error.message}
+          else if pw_error.message
+            p= pw_error.message
+          else
+            p= String(pw_error)
 
       form(action='/user/change-password',method='post',data-toggle='validator')
         input(type='hidden',name='_csrf',value=csrfToken)
