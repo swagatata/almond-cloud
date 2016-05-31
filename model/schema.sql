@@ -242,23 +242,23 @@ UNLOCK TABLES;
 LOCK TABLES `device_schema_version` WRITE;
 /*!40000 ALTER TABLE `device_schema_version` DISABLE KEYS */;
 INSERT INTO `device_schema_version` VALUES
-(6,0,'[{\"listen\":[\"String\"]},{\"say\":[\"String\"]}]'),
-(9,0,'[{\"newmessage\":[\"Feed\",\"String\",\"String\"],\"incomingmessage\":[\"Feed\",\"String\",\"String\"]},{\"send\":[\"Feed\",\"String\",\"String\"]}]'),
-(16,0,'[{\"source\":[\"Number\"]},{}]'),
-(17,0,'[{\"source\":[\"String\",\"Array(String)\",\"Array(String)\",\"String\",\"String\",\"Boolean\"]},{\"sink\":[\"String\"]}]'),
-(18,0,'[{\"newmessage\":[\"Feed\",\"String\",\"String\"],\"incomingmessage\":[\"Feed\",\"String\",\"String\"]},{\"send\":[\"Feed\",\"String\",\"String\"]}]'),
-(19,0,'[{\"profile\":[\"String\",\"String\",\"String\",\"String\",\"Any\",\"String\"]},{\"share\":[\"String\"]}]'),
-(20,0,'[{\"listen\":[\"String\"]},{\"say\":[\"String\"]}]'),
-(21,0,'[{},{}]'),
-(22,0,'[{\"source\": [\"Date\",\"Measure(kg)\"]},{}]'),
-(23,0,'[{},{\"sink\":[\"String\"]}]'),
-(24,0,'[{\"newmessage\":[\"Feed\",\"String\",\"String\"],\"incomingmessage\":[\"Feed\",\"String\",\"String\"]},{\"send\":[\"Feed\",\"String\",\"String\"]}]'),
-(25,0,'[{},{\"sink\":[\"Boolean\"]}]'),
-(42,0,'[{},{}]'),
-(52,0,'[{},{}]'),
-(62,0,'[{\"getmove\":[\"Date\",\"String\",\"Measure(m)\",\"Number\",\"Measure(ms)\",\"Measure(ms)\",\"Measure(kcal)\"]},{}]'),
-(72,0,'[{\"getbody\":[\"Date\",\"Location\",\"Measure(kg)\",\"Number\",\"Number\",\"Number\"]},{}]'),
-(82,0,'[{\"getheartrate\":[\"Date\",\"Location\",\"Number\"]},{}]'),
-(92,0,'[{\"getsleep\":[\"Date\",\"Location\",\"Date\",\"Date\",\"Measure(ms)\",\"Measure(ms)\",\"Measure(ms)\",\"Measure(ms)\"]},{}]');
+(6,0,'[{\"listen\":[\"String\"]},{\"say\":[\"String\"]}]','[{},{},{}]'),
+(9,0,'[{\"newmessage\":[\"Feed\",\"String\",\"String\"],\"incomingmessage\":[\"Feed\",\"String\",\"String\"]},{\"send\":[\"Feed\",\"String\",\"String\"]}]','[{},{},{}]'),
+(16,0,'[{\"source\":[\"Number\"]},{}]','[{},{},{}]'),
+(17,0,'[{\"source\":[\"String\",\"Array(String)\",\"Array(String)\",\"String\",\"String\",\"Boolean\"]},{\"sink\":[\"String\"]}]','[{},{},{}]'),
+(18,0,'[{\"newmessage\":[\"Feed\",\"String\",\"String\"],\"incomingmessage\":[\"Feed\",\"String\",\"String\"]},{\"send\":[\"Feed\",\"String\",\"String\"]}]','[{},{},{}]'),
+(19,0,'[{\"profile\":[\"String\",\"String\",\"String\",\"String\",\"Any\",\"String\"]},{\"share\":[\"String\"]}]','[{},{},{}]'),
+(20,0,'[{\"listen\":[\"String\"]},{\"say\":[\"String\"]}]','[{},{},{}]'),
+(21,0,'[{},{}]','[{},{},{}]'),
+(22,0,'[{\"source\": [\"Date\",\"Measure(kg)\"]},{}]','[{},{},{}]'),
+(23,0,'[{},{\"sink\":[\"String\"]}]','[{},{},{}]'),
+(24,0,'[{\"newmessage\":[\"Feed\",\"String\",\"String\"],\"incomingmessage\":[\"Feed\",\"String\",\"String\"]},{\"send\":[\"Feed\",\"String\",\"String\"]}]','[{},{},{}]'),
+(25,0,'[{},{\"sink\":[\"Boolean\"]}]','[{},{},{}]'),
+(42,0,'[{},{}]','[{},{},{}]'),
+(52,0,'[{},{}]','[{},{},{}]'),
+(62,0,'[{\"getmove\":[\"Date\",\"String\",\"Measure(m)\",\"Number\",\"Measure(ms)\",\"Measure(ms)\",\"Measure(kcal)\"]},{}]','[{},{},{}]'),
+(72,0,'[{\"getbody\":[\"Date\",\"Location\",\"Measure(kg)\",\"Number\",\"Number\",\"Number\"]},{}]','[{},{},{}]'),
+(82,0,'[{\"getheartrate\":[\"Date\",\"Location\",\"Number\"]},{}]','[{},{},{}]'),
+(92,0,'[{\"getsleep\":[\"Date\",\"Location\",\"Date\",\"Date\",\"Measure(ms)\",\"Measure(ms)\",\"Measure(ms)\",\"Measure(ms)\"]},{}]','[{},{},{}]');
 /*!40000 ALTER TABLE `device_schema_version` ENABLE KEYS */;
 UNLOCK TABLES;

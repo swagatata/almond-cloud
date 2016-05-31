@@ -265,9 +265,9 @@ class Platform {
     // Return a server/port URL that can be used to refer to this
     // installation. This is primarily used for OAuth redirects, and
     // so must match what the upstream services accept.
-    getOrigin: function() {
+    getOrigin() {
         return 'http://127.0.0.1:8080';
-    },
+    }
 
     getCloudId() {
         return this._cloudId;
