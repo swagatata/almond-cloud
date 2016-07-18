@@ -8,6 +8,9 @@ drop table if exists app_device cascade;
 drop table if exists app_tag cascade;
 drop table if exists device_code_version cascade;
 drop table if exists device_schema_version cascade;
+drop table if exists device_schema_channels cascade;
+drop table if exists device_schema_arguments cascade;
+drop table if exists example_utterances cascade;
 drop table if exists device_schema cascade;
 drop table if exists device_class_tag cascade;
 drop table if exists device_class cascade;
@@ -253,7 +256,7 @@ UNLOCK TABLES;
 LOCK TABLES `device_class_kind` WRITE;
 /*!40000 ALTER TABLE `device_class_kind` DISABLE KEYS */;
 INSERT INTO `device_class_kind` VALUES
-(8,'messaging'),(8,'online-account');
+(8,'messaging',false),(8,'online-account',false);
 /*!40000 ALTER TABLE `device_class_kind` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -269,24 +272,13 @@ UNLOCK TABLES;
 LOCK TABLES `device_schema` WRITE;
 /*!40000 ALTER TABLE `device_schema` DISABLE KEYS */;
 INSERT INTO `device_schema` VALUES
-(6,'org.thingpedia.builtin.sabrina',0,0),
-(9,'org.thingpedia.builtin.omlet',0,0),
-(16,'test',0,0),
-(17,'twitter',0,0),
-(18,'omlet',0,0),
-(19,'linkedin',0,0),
-(20,'sabrina',0,0),
-(21,'online-account',0,0),
-(22,'scale',0,0),
-(23,'tv',0,0),
-(24,'messaging',0,0),
-(25,'heatpad',0,0),
-(42,'google',0,0),
-(52,'facebook',0,0),
-(62,'activity-tracker',0,0),
-(72,'fitness-tracker',0,0),
-(82,'heartrate-monitor',0,0),
-(92,'sleep-tracker',0,0);
+(6,'org.thingpedia.builtin.sabrina','primary',1,0,0),
+(9,'org.thingpedia.builtin.omlet','primary',1,0,0),
+(18,'omlet','global',1,0,0),
+(20,'sabrina','global',1,0,0),
+(21,'online-account','other',1,0,0),
+(24,'messaging','other',1,0,0),
+(25,'data-source','other',1,0,0);
 /*!40000 ALTER TABLE `device_schema` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -295,21 +287,10 @@ LOCK TABLES `device_schema_version` WRITE;
 INSERT INTO `device_schema_version` VALUES
 (6,0,'[{\"listen\":[\"String\"]},{\"say\":[\"String\"]}]','[{},{},{}]'),
 (9,0,'[{\"newmessage\":[\"Feed\",\"String\",\"String\"],\"incomingmessage\":[\"Feed\",\"String\",\"String\"]},{\"send\":[\"Feed\",\"String\",\"String\"]}]','[{},{},{}]'),
-(16,0,'[{\"source\":[\"Number\"]},{}]','[{},{},{}]'),
-(17,0,'[{\"source\":[\"String\",\"Array(String)\",\"Array(String)\",\"String\",\"String\",\"Boolean\"]},{\"sink\":[\"String\"]}]','[{},{},{}]'),
 (18,0,'[{\"newmessage\":[\"Feed\",\"String\",\"String\"],\"incomingmessage\":[\"Feed\",\"String\",\"String\"]},{\"send\":[\"Feed\",\"String\",\"String\"]}]','[{},{},{}]'),
-(19,0,'[{\"profile\":[\"String\",\"String\",\"String\",\"String\",\"Any\",\"String\"]},{\"share\":[\"String\"]}]','[{},{},{}]'),
 (20,0,'[{\"listen\":[\"String\"]},{\"say\":[\"String\"]}]','[{},{},{}]'),
 (21,0,'[{},{}]','[{},{},{}]'),
-(22,0,'[{\"source\": [\"Date\",\"Measure(kg)\"]},{}]','[{},{},{}]'),
-(23,0,'[{},{\"sink\":[\"String\"]}]','[{},{},{}]'),
 (24,0,'[{\"newmessage\":[\"Feed\",\"String\",\"String\"],\"incomingmessage\":[\"Feed\",\"String\",\"String\"]},{\"send\":[\"Feed\",\"String\",\"String\"]}]','[{},{},{}]'),
-(25,0,'[{},{\"sink\":[\"Boolean\"]}]','[{},{},{}]'),
-(42,0,'[{},{}]','[{},{},{}]'),
-(52,0,'[{},{}]','[{},{},{}]'),
-(62,0,'[{\"getmove\":[\"Date\",\"String\",\"Measure(m)\",\"Number\",\"Measure(ms)\",\"Measure(ms)\",\"Measure(kcal)\"]},{}]','[{},{},{}]'),
-(72,0,'[{\"getbody\":[\"Date\",\"Location\",\"Measure(kg)\",\"Number\",\"Number\",\"Number\"]},{}]','[{},{},{}]'),
-(82,0,'[{\"getheartrate\":[\"Date\",\"Location\",\"Number\"]},{}]','[{},{},{}]'),
-(92,0,'[{\"getsleep\":[\"Date\",\"Location\",\"Date\",\"Date\",\"Measure(ms)\",\"Measure(ms)\",\"Measure(ms)\",\"Measure(ms)\"]},{}]','[{},{},{}]');
+(25,0,'[{},{}]','[{},{},{}]');
 /*!40000 ALTER TABLE `device_schema_version` ENABLE KEYS */;
 UNLOCK TABLES;

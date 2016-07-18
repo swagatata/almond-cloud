@@ -23,8 +23,13 @@ module.exports = {
         safeMkdir('./icons');
         return Q.nfcall(fs.writeFile, './icons/' + name + '.png');
     },
-    storeFile: function(blob, name, version) {
+    storeZipFile: function(blob, name, version) {
         safeMkdir('./code');
-        return Q.nfcall(fs.writeFile, './code/' + name + '-v' + version + '.zip', blob);
+        var stream = fs.createWriteStream('./code/' + name + '-v' + version + '.zip');
+        blob.pipe(stream);
+        return Q.Promise(function(callback, errback) {
+            stream.on('finish', callback);
+            stream.on('error', errback);
+        });
     },
 };
