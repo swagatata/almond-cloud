@@ -1,12 +1,4 @@
 $(function() {
-    /*$('#device-code').each(function() {
-        CodeMirror.fromTextArea(this, { mode: 'application/json',
-                                        tabSize: 8,
-                                        lineNumbers: true,
-                                        gutters: ["CodeMirror-lint-markers"],
-                                        lint: true
-                                      });
-    });*/
     var json = JSON.parse($('#device-code').text());
     var element = document.getElementById('json-manifest-placeholder');
 
@@ -108,76 +100,13 @@ $(function() {
                 items: {
                     type: 'string',
                 }
-            },
-            url: {
-                type: 'string',
-                title: 'API Endpoint URL',
-                required: false,
-            },
-            webhook: {
-                type: 'boolean',
-                format: 'checkbox',
-                title: 'Is it a webhook?',
-                required: false,
             }
         }
     };
     var fullSchema = {
         type: 'object',
-        title: "Thing Manifest",
-        additionalProperties: {
-            type: 'string',
-            required: false,
-        },
+        title: "Type Description",
         properties: {
-            params: {
-                type: 'object',
-                title: "Configuration Parameters",
-                additionalProperties: {
-                    type: 'array',
-                    required: false,
-                    minItems: 2,
-                    maxItems: 2,
-                    items: [
-                        { type: 'string', title: "Label",
-                          headerTemplate: '{{title}}' },
-                        { type: 'string', title: "Type",
-                          'enum': ['text', 'password', 'email', 'number'],
-                          headerTemplate: '{{title}}' }
-                    ]
-                }
-            },
-            'global-name': {
-                type: 'string',
-                title: "Global Name",
-                required: false
-            },
-            types: {
-                type: 'array',
-                format: 'table',
-                title: "Thing Types",
-                items: { type: 'string' }
-            },
-            child_types: {
-                type: 'array',
-                format: 'table',
-                title: "Child Thing Types",
-                items: { type: 'string' }
-            },
-            auth: {
-                type: 'object',
-                title: "Authentication",
-                properties: {
-                    type: {
-                        type: 'string',
-                        title: "Auth Type",
-                        'enum': ['none', 'oauth2', 'basic', 'builtin', 'discovery']
-                    }
-                },
-                additionalProperties: {
-                    type: 'string'
-                }
-            },
             triggers: {
                 type: 'object',
                 title: "Triggers",

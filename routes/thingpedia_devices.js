@@ -10,10 +10,13 @@ const Q = require('q');
 const express = require('express');
 const passport = require('passport');
 
+const Config = require('../config');
+
 const db = require('../util/db');
 const model = require('../model/device');
 const user = require('../util/user');
 const organization = require('../model/organization');
+const schema = require('../model/schema');
 
 const EngineManager = require('../lib/enginemanager');
 
@@ -30,6 +33,7 @@ router.get('/', function(req, res) {
     db.withClient(function(client) {
         return model.getAll(client, page * 18, 18).then(function(devices) {
             res.render('thingpedia_dev_portal', { page_title: "ThingPedia Developer Portal",
+                                                  S3_CLOUDFRONT_HOST: Config.S3_CLOUDFRONT_HOST,
                                                   csrfToken: req.csrfToken(),
                                                   devices: devices,
                                                   page_num: page,
@@ -42,30 +46,25 @@ function getDetails(fn, param, req, res) {
     Q.try(function() {
         return db.withClient(function(client) {
             return fn(client, param).tap(function(d) {
-                return model.getAllKinds(client, d.id)
-                    .then(function(kinds) { d.kinds = kinds; });
-            }).tap(function(d) {
                 return Q.try(function() {
                     if (req.user && req.user.developer_org === d.owner)
-                        return model.getDeveloperCode(client, d.id);
+                        return model.getCodeByVersion(client, d.id, d.developer_version);
                     else
-                        return model.getApprovedCode(client, d.id);
+                        return model.getCodeByVersion(client, d.id, d.approved_version);
                 }).then(function(row) { d.code = row.code; })
                 .catch(function(e) { d.code = null; });
             });
         }).then(function(d) {
-            var online = d.kinds.some(function(k) { return k.kind === 'online-account' });
-            var title;
-            if (online)
-                title = "ThingPedia - Account details";
-            else
-                title = "ThingPedia - Device details";
+            var online = false;
 
+            d.types = [];
             d.child_types = [];
             var triggers = [], actions = [], queries = [];
             try {
                 var ast = JSON.parse(d.code);
-                d.child_types = ast['child-types'] || [];
+                d.types = ast.types || [];
+                online = d.types.some(function(k) { return k === 'online-account' });
+                d.child_types = ast.child_types || [];
 
                 if (ast.triggers) {
                     for (var t in ast.triggers) {
@@ -117,7 +116,14 @@ function getDetails(fn, param, req, res) {
                 }
             } catch(e) {}
 
+            var title;
+            if (online)
+                title = "ThingPedia - Account details";
+            else
+                title = "ThingPedia - Device details";
+
             res.render('thingpedia_device_details', { page_title: title,
+                                                      S3_CLOUDFRONT_HOST: Config.S3_CLOUDFRONT_HOST,
                                                       csrfToken: req.csrfToken(),
                                                       device: d,
                                                       triggers: triggers,
@@ -152,7 +158,14 @@ router.get('/by-id/:kind', function(req, res) {
 
 router.post('/approve/:id', user.requireLogIn, user.requireDeveloper(user.DeveloperStatus.ADMIN), function(req, res) {
     db.withTransaction(function(dbClient) {
-        return model.approve(dbClient, req.params.id);
+        return model.get(dbClient, req.params.id).then(function(device) {
+            return model.approve(dbClient, req.params.id).then(function() {
+                return schema.approveByKind(dbClient, device.primary_kind);
+            }).then(function() {
+                if (device.global_name)
+                    return schema.approveByKind(dbClient, device.global_name);
+            });
+        });
     }).then(function() {
         res.redirect('/thingpedia/devices/details/' + req.params.id);
     }).catch(function(e) {

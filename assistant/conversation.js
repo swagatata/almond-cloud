@@ -36,7 +36,7 @@ function registerWithOmlet(msg, account) {
 
     return db.withTransaction(function(dbClient) {
         return User.registerWithOmlet(dbClient, username, salt, passwordHash, account, email).then(function(user) {
-            return require('../enginemanager').get().startUser(user);
+            return require('../lib/enginemanager').get().startUser(user);
         });
     });
 }
@@ -71,8 +71,25 @@ module.exports = class Conversation {
     }
 
     sendChoice(idx, what, title, text) {
-        var url = 'https://web.stanford.edu/~gcampagn/choice.html#' + idx;
+        var url = 'https://web.stanford.edu/~gcampagn/sabrina/choice.html#' + idx;
         return this.sendRDL({ type: 'rdl', noun: what,
+                              displayTitle: title,
+                              callback: url,
+                              webCallback: url });
+    }
+
+    sendButton(text, json) {
+        var url = 'https://web.stanford.edu/~gcampagn/sabrina/echo.html#' + encodeURIComponent(json);
+        return this.sendRDL({ type: 'rdl', noun: 'button',
+                              displayTitle: text,
+                              callback: url,
+                              webCallback: url });
+    }
+
+    sendLink(title, url) {
+        if (url.startsWith('/'))
+            url = 'https://thingengine.stanford.edu' + url;
+        return this.sendRDL({ type: 'rdl', noun: 'link',
                               displayTitle: title,
                               callback: url,
                               webCallback: url });
@@ -182,7 +199,7 @@ module.exports = class Conversation {
     }
 
     _analyze(utterance) {
-        return this._sempre.sendUtterance(this.feed.feedId, utterance);
+        return this._sempre.sendUtterance(utterance);
     }
 
     _startRegistration() {
@@ -230,4 +247,5 @@ module.exports = class Conversation {
         return this._messaging.leaveFeed(this.feed.feedId);
     }
 }
-module.exports.prototype.$rpcMethods = ['send', 'sendPicture', 'sendRDL', 'sendChoice'];
+module.exports.prototype.$rpcMethods = ['send', 'sendPicture', 'sendRDL',
+                                        'sendChoice', 'sendButton', 'sendLink'];

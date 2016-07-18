@@ -18,6 +18,7 @@ const child_process = require('child_process');
 const sql = require('thingengine-core/lib/util/sql');
 const prefs = require('thingengine-core/lib/util/prefs');
 
+const Assistant = require('./assistant');
 const graphics = require('./graphics');
 
 var _unzipApi = {
@@ -121,11 +122,19 @@ class Platform {
         this._websocketApi = new WebsocketApi();
         this._webhookApi = new WebhookApi();
         _dispatcher.addCloudId(cloudId, this._webhookApi, this._websocketApi);
+
+        this._assistant = null;
     }
 
     start() {
         return sql.ensureSchema(this._writabledir + '/sqlite.db',
                                 '../data/schema.sql');
+    }
+
+    createAssistant(engine) {
+        this._assistant = new Assistant(engine);
+	// for compat
+	engine.assistant = this._assistant;
     }
 
     // Obtain a shared preference store
@@ -147,9 +156,8 @@ class Platform {
     // messaging or the apps on the phone client)
     hasFeature(feature) {
         switch(feature) {
-        // we would like to disable discovery but unfortunately discovery
-        // is also used for the global sportradar loading, so we just enable
-        // everything
+        case 'discovery':
+            return false;
 
         default:
             return true;
@@ -205,6 +213,9 @@ class Platform {
 
         case 'websocket-api':
             return this._websocketApi;
+
+        case 'assistant':
+            return this._assistant;
 
         default:
             return null;

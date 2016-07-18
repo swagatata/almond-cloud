@@ -11,11 +11,14 @@ const Q = require('q');
 
 const ThingPediaDiscovery = require('thingpedia-discovery');
 
+const Config = require('../config');
+
 const db = require('./db');
 const device = require('../model/device');
 const user = require('../model/user');
 const organization = require('../model/organization');
 const schema = require('../model/schema');
+const exampleModel = require('../model/example');
 
 const S3_HOST = function() {
     return platform.getOrigin() + '/thingpedia/zipfiles/';
@@ -73,17 +76,17 @@ module.exports = class ThingPediaClientCloud {
                 if (orgs.length > 0)
                     org = orgs[0];
 
-                return device.getByPrimaryKind(dbClient, kind);
-            }).then(function(device) {
-                if (device.fullcode)
-                    throw new Error('No Code Available');
+                return device.getByPrimaryKind(dbClient, kind).then(function(device) {
+                    if (device.fullcode)
+                        throw new Error('No Code Available');
 
-                if (org !== null && org.id === device.owner)
-                    return (S3_HOST() + device.primary_kind + '-v' + device.developer_version + '.zip');
-                else if (device.approved_version !== null)
-                    return (S3_HOST() + device.primary_kind + '-v' + device.approved_version + '.zip');
-                else
-                    throw new Error('Not Authorized');
+                    if (org !== null && org.id === device.owner)
+                        return (S3_HOST() + device.primary_kind + '-v' + device.developer_version + '.zip');
+                    else if (device.approved_version !== null)
+                        return (S3_HOST() + device.primary_kind + '-v' + device.approved_version + '.zip');
+                    else
+                        throw new Error('Not Authorized');
+                });
             });
         });
     }
@@ -137,17 +140,15 @@ module.exports = class ThingPediaClientCloud {
                 if (orgs.length > 0)
                     org = orgs[0];
 
-                return schema.getTypesByKinds(dbClient, schemas, org);
+                return schema.getTypesByKinds(dbClient, schemas, org !== null ? org.id : null);
             }).then(function(rows) {
                 var obj = {};
 
                 rows.forEach(function(row) {
-                    if (row.types === null)
-                        return;
                     obj[row.kind] = {
-                        triggers: row.types[0],
-                        actions: row.types[1],
-                        queries: (row.types[2] || {})
+                        triggers: row.triggers,
+                        actions: row.actions,
+                        queries: row.queries
                     };
                 });
 
@@ -170,41 +171,17 @@ module.exports = class ThingPediaClientCloud {
                 if (orgs.length > 0)
                     org = orgs[0];
 
-                return schema.getMetasByKinds(dbClient, schemas, org);
+                return schema.getMetasByKinds(dbClient, schemas, org !== null ? org.id : null);
             }).then(function(rows) {
                 var obj = {};
 
                 rows.forEach(function(row) {
-                    if (row.types === null)
-                        return;
-
-                    var types = { triggers: {}, queries: {}, actions: {} };
-
-                    function doOne(what, id) {
-                        for (var name in row.types[id]) {
-                            var obj = {
-                                schema: row.types[id][name]
-                            };
-                            if (name in row.meta[id]) {
-                                obj.args = row.meta[id][name].args;
-                                obj.doc = row.meta[id][name].doc;
-                                obj.questions = rows.meta[id][name].questions || [];
-                            } else {
-                                obj.args = obj.schema.map(function(_, i) {
-                                    return 'arg' + (i+1);
-                                });
-                                obj.questions = obj.schema.map(function() {
-                                    return '';
-                                });
-                            }
-                            types[what][name] = obj;
-                        }
-                    }
-
-                    doOne('triggers', 0);
-                    doOne('actions', 1);
-                    doOne('queries', 2);
-                    obj[row.kind] = types;
+                    obj[row.kind] = {
+                        kind_type: row.kind_type,
+                        triggers: row.triggers,
+                        actions: row.actions,
+                        queries: row.queries
+                    };
                 });
 
                 return obj;
@@ -212,9 +189,125 @@ module.exports = class ThingPediaClientCloud {
         });
     }
 
+    _deviceMakeFactory(d) {
+        var ast = JSON.parse(d.code);
+
+        delete d.code;
+        if (ast.auth.type === 'builtin' || ast.auth.type === 'discovery') {
+            d.factory = null;
+        } else if (ast.auth.type === 'none' &&
+                   Object.keys(ast.params).length === 0) {
+            d.factory = ({ type: 'none', kind: d.primary_kind, text: d.name });
+        } else if (ast.auth.type === 'oauth2') {
+            d.factory = ({ type: 'oauth2', kind: d.primary_kind, text: d.name });
+        } else {
+            d.factory = ({ type: 'form', kind: d.primary_kind,
+                           fields: Object.keys(ast.params).map(function(k) {
+                               var p = ast.params[k];
+                               return ({ name: k, label: p[0], type: p[1] });
+                           })
+                         });
+        }
+    }
+
+    getDeviceFactories(klass) {
+        var developerKey = this.developerKey;
+
+        return db.withClient((dbClient) => {
+            return Q.try(() => {
+                if (developerKey)
+                    return organization.getByDeveloperKey(dbClient, developerKey);
+                else
+                    return [];
+            }).then((orgs) => {
+                var org = null;
+                if (orgs.length > 0)
+                    org = orgs[0];
+
+                var devices;
+                if (klass) {
+                    if (klass === 'online')
+                        devices = device.getAllApprovedWithKindWithCode(dbClient,
+                                                                        'online-account',
+                                                                        org);
+                    else if (klass === 'data')
+                        devices = device.getAllApprovedWithKindWithCode(dbClient,
+                                                                        'data-source',
+                                                                        org);
+                    else
+                        devices = device.getAllApprovedWithoutKindsWithCode(dbClient,
+                                                                            ['online-account','data-source'],
+                                                                            org);
+                } else {
+                    devices = device.getAllApprovedWithCode(dbClient, org);
+                }
+
+                return devices.then((devices) => {
+                    devices.forEach((d) => {
+                        try {
+                            this._deviceMakeFactory(d);
+                        } catch(e) {}
+                    });
+                    devices = devices.filter((d) => {
+                        return !!d.factory;
+                    });
+                    return devices;
+                });
+            });
+        });
+    }
+
+    getDeviceSetup(kinds) {
+        var developerKey = this.developerKey;
+        var result = {};
+
+        return db.withClient((dbClient) => {
+            return Q.try(() => {
+                if (developerKey)
+                    return organization.getByDeveloperKey(dbClient, developerKey);
+                else
+                    return [];
+            }).then((orgs) => {
+                var org = null;
+                if (orgs.length > 0)
+                    org = orgs[0];
+
+                return device.getApprovedByGlobalNamesWithCode(dbClient, kinds, org);
+            }).then((devices) => {
+                devices.forEach((d) => {
+                    try {
+                        this._deviceMakeFactory(d);
+                        if (d.factory)
+                            result[d.global_name] = d.factory;
+                    } catch(e) {}
+                });
+
+                var unresolved = kinds.filter((k) => !(k in result));
+                return Q.all(unresolved.map((k) => {
+                    return device.getAllWithKindOrChildKind(dbClient, k).then((devices) => {
+                        result[k] = {
+                            type: 'multiple',
+                            choices: devices.map((d) => d.name)
+                        };
+                    });
+                }));
+            });
+        }).then(() => {
+            return result;
+        });
+    }
+
     getKindByDiscovery(body) {
         return _discoveryServer.decode(body);
     }
+
+    getExamplesByKey(key, isBase) {
+        return db.withClient((dbClient) => {
+            return exampleModel.getByKey(dbClient, isBase, key);
+        });
+    }
 }
 module.exports.prototype.$rpcMethods = ['getModuleLocation', 'getDeviceCode',
-                                        'getSchemas', 'getKindByDiscovery'];
+                                        'getSchemas', 'getMetas',
+                                        'getDeviceSetup',
+                                        'getKindByDiscovery', 'getExamplesByKey'];

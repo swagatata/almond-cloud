@@ -89,10 +89,13 @@ create table oauth2_auth_codes (
 create table app (
     id integer auto_increment primary key,
     owner integer,
+    app_id varchar(255) not null,
     name varchar(255) not null collate utf8_general_ci,
     description text not null collate utf8_general_ci,
+    canonical text null collate utf8_general_ci,
     code mediumtext not null,
     visible boolean not null default false,
+    unique key (owner, app_id),
     foreign key (owner) references users(id) on update cascade on delete set null
 ) collate = utf8_bin;
 
@@ -113,8 +116,11 @@ create table device_class (
 create table device_schema (
     id integer auto_increment primary key,
     kind varchar(128) unique not null,
+    kind_type enum('primary', 'global', 'other') not null default 'other',
+    owner integer not null,
     developer_version integer(11) not null default 0,
-    approved_version integer(11) default null
+    approved_version integer(11) default null,
+    foreign key (owner) references organizations(id) on update cascade on delete cascade
 ) collate utf8_bin;
 
 create table device_schema_version (
@@ -124,6 +130,50 @@ create table device_schema_version (
     meta mediumtext not null,
     primary key(schema_id, version),
     foreign key (schema_id) references device_schema(id) on update cascade on delete cascade
+) collate utf8_bin;
+
+create table device_schema_channels (
+    schema_id integer not null,
+    version integer not null,
+    name varchar(128) not null,
+    channel_type enum('trigger', 'action', 'query') not null,
+    canonical text null collate utf8_general_ci,
+    confirmation varchar(255) collate utf8_general_ci default null,
+    types mediumtext not null,
+    argnames mediumtext not null,
+    required mediumtext not null,
+    doc mediumtext not null,
+    questions mediumtext not null collate utf8_general_ci,
+    primary key(schema_id, version, name),
+    key canonical_btree (canonical(30)),
+    foreign key (schema_id) references device_schema(id) on update cascade on delete cascade,
+    fulltext key(canonical)
+) collate utf8_bin;
+
+create table device_schema_arguments (
+    argname varchar(128) not null,
+    argtype varchar(128) not null,
+    required boolean not null,
+    schema_id integer not null,
+    version integer not null,
+    channel_name varchar(128) not null,
+
+    -- canonical attribute is to handle splitting "inReplyTo" to become "in reply to"
+    -- or "from_channel" to be "from channel"
+    canonical tinytext not null,
+    primary key(argname, argtype, schema_id, version, channel_name),
+    fulltext key(canonical),
+    foreign key (schema_id) references device_schema(id) on update cascade on delete cascade
+) collate utf8_bin;
+
+create table example_utterances (
+    id integer auto_increment primary key,
+    schema_id integer null,
+    is_base boolean default false,
+    utterance text not null collate utf8_general_ci,
+    target_json text not null,
+    key(schema_id),
+    fulltext key(utterance)
 ) collate utf8_bin;
 
 create table device_code_version (
@@ -160,6 +210,7 @@ create table device_class_tag (
 create table device_class_kind (
     device_id integer not null,
     kind varchar(128) not null,
+    is_child boolean not null default false,
     primary key(device_id, kind),
     foreign key (device_id) references device_class(id) on update cascade on delete cascade
 ) collate utf8_bin;

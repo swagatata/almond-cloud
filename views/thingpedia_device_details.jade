@@ -33,6 +33,9 @@ block content
             |  
             button(type='submit').btn.btn-success Approve it
 
+  aside#device-icon-large
+    img(src='/thingpedia/icons/' + device.primary_kind + '.png', alt="Icon for " + device.name)
+
   p#device-description= device.description
 
   if device.primary_kind.startsWith('org.thingpedia.builtin.')
@@ -58,10 +61,10 @@ block content
     if device.global_name
       |  
       span.label.label-default= device.global_name
-    for k in device.kinds
+    for k in device.types
       |  
-      a(href='/thingpedia/schemas/by-id/' + k.kind)
-        span.label.label-default= k.kind
+      a(href='/thingpedia/schemas/by-id/' + k)
+        span.label.label-default= k
 
   if device.child_types.length > 0
     h2.device-subtitle Child Types:
@@ -69,6 +72,8 @@ block content
         | &#x20;
         a(href='/thingpedia/schemas/by-id/' + k)
           span.label.label-default= k
+
+  div.clearfix
 
   if triggers.length > 0
     h2.device-subtitle Triggers

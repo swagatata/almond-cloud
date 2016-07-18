@@ -35,6 +35,27 @@ router.get('/schema/:schemas', function(req, res) {
             res.cacheFor(86400000);
         res.json(obj);
     }).catch(function(e) {
+        console.error(e.stack);
+        res.status(400).send('Error: ' + e.message);
+    }).done();
+});
+
+router.get('/schema-metadata/:schemas', function(req, res) {
+    var schemas = req.params.schemas.split(',');
+    if (schemas.length === 0) {
+        res.json({});
+        return;
+    }
+
+    var client = new ThingPediaClient(req.query.developer_key);
+
+    client.getMetas(schemas).then(function(obj) {
+        if (obj.developer)
+            res.cacheFor(3600000);
+        else
+            res.cacheFor(86400000);
+        res.json(obj);
+    }).catch(function(e) {
         res.status(400).send('Error: ' + e.message);
     }).done();
 });
@@ -43,34 +64,31 @@ router.get('/code/devices/:kind', function(req, res) {
     var client = new ThingPediaClient(req.query.developer_key);
 
     client.getDeviceCode(req.params.kind).then(function(code) {
+        if (obj.developer)
+            res.cacheFor(3600000);
+        else
+            res.cacheFor(86400000);
         res.json(code);
     }).catch(function(e) {
-        console.log('Failed to retrieve device code: ' + e.message);
-        console.log(e.stack);
         res.status(400).send('Error: ' + e.message);
     }).done();
 });
 
-function deviceMakeFactory(d) {
-    var ast = JSON.parse(d.code);
-
-    delete d.code;
-    if (ast.auth.type === 'builtin') {
-        d.factory = null;
-    } else if (ast.auth.type === 'none' &&
-               Object.keys(ast.params).length === 0) {
-        d.factory = ({ type: 'none', text: d.name });
-    } else if (ast.auth.type === 'oauth2') {
-        d.factory = ({ type: 'oauth2', text: d.name });
-    } else {
-        d.factory = ({ type: 'form',
-                       fields: Object.keys(ast.params).map(function(k) {
-                           var p = ast.params[k];
-                           return ({ name: k, label: p[0], type: p[1] });
-                       })
-                     });
+router.get('/devices/setup/:kinds', function(req, res) {
+    var kinds = req.params.kinds.split(',');
+    if (kinds.length === 0) {
+        res.json({});
+        return;
     }
-}
+
+    var client = new ThingPediaClient(req.query.developer_key);
+    client.getDeviceSetup(kinds).then(function(result) {
+        res.cacheFor(86400000);
+        res.status(200).json(result);
+    }).catch(function(e) {
+        res.status(500).json({ error: e.message });
+    }).done();
+});
 
 router.get('/devices', function(req, res) {
     if (req.query.class && ['online', 'physical', 'data'].indexOf(req.query.class) < 0) {
@@ -78,49 +96,14 @@ router.get('/devices', function(req, res) {
         return;
     }
 
-    db.withClient(function(dbClient) {
-        return Q.try(function() {
-            var developerKey = req.query.developer_key;
-
-            if (developerKey)
-                return organization.getByDeveloperKey(dbClient, developerKey);
-            else
-                return [];
-        }).then(function(orgs) {
-            var org = null;
-            if (orgs.length > 0)
-                org = orgs[0];
-
-            var devices;
-            if (req.query.class) {
-                if (req.query.class === 'online')
-                    devices = device.getAllApprovedWithKindWithCode(dbClient,
-                                                                    'online-account',
-                                                                    org);
-                else if (req.query.class === 'data')
-                    devices = device.getAllApprovedWithKindWithCode(dbClient,
-                                                                    'data-source',
-                                                                    org);
-                else
-                    devices = device.getAllApprovedWithoutKindsWithCode(dbClient,
-                                                                        ['online-account','data-source'],
-                                                                        org);
-            } else {
-                devices = device.getAllApprovedWithCode(dbClient, org);
-            }
-
-            return devices.then(function(devices) {
-                devices.forEach(function(d) {
-                    try {
-                        deviceMakeFactory(d);
-                    } catch(e) {}
-                });
-                devices = devices.filter(function(d) {
-                    return !!d.factory;
-                });
-                res.json(devices);
-            });
-        });
+    var client = new ThingPediaClient(req.query.developer_key);
+    client.getDeviceFactories(req.query.class).then(function(obj) {
+        res.cacheFor(86400000);
+        res.json(obj);
+    }).catch(function(e) {
+        console.error('Failed to retrieve device factories: ' + e.message);
+        console.error(e.stack);
+        res.status(500).send('Error: ' + e.message);
     }).done();
 });
 
@@ -140,7 +123,7 @@ router.get('/code/apps/:id', function(req, res) {
         });
     }).catch(function(e) {
         res.json({ error: e.message });
-    });
+    }).done();
 });
 router.post('/discovery', function(req, res) {
     var client = new ThingPediaClient(req.query.developer_key);
@@ -157,6 +140,22 @@ router.post('/discovery', function(req, res) {
         console.log(e.stack);
         res.status(400).send('Error: ' + e.message);
     });
+});
+
+router.get('/examples', function(req, res) {
+    var client = new ThingPediaClient(req.query.developer_key);
+
+    var isBase = req.query.base !== '0';
+
+    if (req.query.key) {
+        client.getExamplesByKey(req.query.key, isBase).then((result) => {
+            res.status(200).json(result);
+        }).catch((e) => {
+            res.status(500).json({ error: e.message });
+        });
+    } else {
+        res.status(400).json({ error: "Bad Request "});
+    }
 });
 
 module.exports = router;

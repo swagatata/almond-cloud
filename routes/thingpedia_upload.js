@@ -8,10 +8,10 @@
 
 const Q = require('q');
 const express = require('express');
-const passport = require('passport');
+const fs = require('fs');
 const multer = require('multer');
 const csurf = require('csurf');
-const JSZip = require('node-zip');
+const JSZip = require('jszip');
 const ThingTalk = require('thingtalk');
 
 var db = require('../util/db');
@@ -19,10 +19,16 @@ var code_storage = require('../util/code_storage');
 var model = require('../model/device');
 var schema = require('../model/schema');
 var user = require('../util/user');
+var Validation = require('../util/validation');
+var generateExamples = require('../util/generate_examples');
+var ManifestToSchema = require('../util/manifest_to_schema');
 
 var router = express.Router();
 
-router.use(multer().single('zipfile'));
+router.use(multer({ dest: platform.getTmpDir() }).fields([
+    { name: 'zipfile', maxCount: 1 },
+    { name: 'icon', maxCount: 1 }
+]));
 router.use(csurf({ cookie: false }));
 
 const DEFAULT_CODE = {"params": {"username": ["Username","text"],
@@ -35,6 +41,7 @@ const DEFAULT_CODE = {"params": {"username": ["Username","text"],
                               "url": "https://www.example.com/api/1.0/poll",
                               "poll-interval": 300000,
                               "args": ["time", "measurement"],
+                              "schema": ["Date", "Measure(m)"],
                               "doc": "report the latest measurement"
                           }
                       },
@@ -42,6 +49,7 @@ const DEFAULT_CODE = {"params": {"username": ["Username","text"],
                           "setpower": {
                               "url": "http://www.example.com/api/1.0/post",
                               "args": ["power"],
+                              "schema": ["Boolean"],
                               "doc": "power on/off the device"
                           }
                       },
@@ -49,6 +57,7 @@ const DEFAULT_CODE = {"params": {"username": ["Username","text"],
                           "getpower": {
                               "url": "http://www.example.com/api/1.0/post",
                               "args": ["power"],
+                              "schema": ["Boolean"],
                               "doc": "check if the device is on or off"
                           }
                      }
@@ -69,6 +78,7 @@ const DEFAULT_ONLINE_CODE = {"name": "Example Account of %s",
                                  "onmessage": {
                                      "url": "wss://www.example.com/api/1.0/data",
                                      "args": ["message"],
+                                     "schema": ["String"],
                                      "doc": "trigger on each new message"
                                  }
                              },
@@ -76,6 +86,7 @@ const DEFAULT_ONLINE_CODE = {"name": "Example Account of %s",
                                  "post": {
                                      "url": "https://www.example.com/api/1.0/post",
                                      "args": ["message"],
+                                     "schema": ["String"],
                                      "doc": "post a new message",
                                  }
                              },
@@ -83,6 +94,7 @@ const DEFAULT_ONLINE_CODE = {"name": "Example Account of %s",
                                 "profile": {
                                      "url": "https://www.example.com/api/1.0/profile",
                                      "args": ["username", "pictureUrl", "realName", "link"],
+                                     "schema": ["String", "Picture", "String", "String"],
                                      "doc": "read the user profile"
                                  },
                              }
@@ -110,38 +122,32 @@ function schemaCompatible(s1, s2) {
         s2.every(function(t, i) {
             var t1 = ThingTalk.Type.fromString(t);
             var t2 = ThingTalk.Type.fromString(s1[i]);
-            return ThingTalk.Type.compatible(t1, t2);
+            try {
+                ThingTalk.Type.typeUnify(t1, t2);
+                return true;
+            } catch(e) {
+                return false;
+            }
         });
 }
 
-function validateSchema(dbClient, type, ast, allowFailure) {
-    return schema.getTypesByKind(dbClient, type).then(function(rows) {
-        if (rows.length < 1) {
-            if (allowFailure)
-                return;
-            else
-                throw new Error("Invalid device type " + type);
+function validateSchema(dbClient, type, ast, req) {
+    return schema.getTypesByKinds(dbClient, [type], req.user.developer_org).then(function(rows) {
+        if (rows.length < 1)
+            throw new Error("Invalid device type " + type);
+
+        function validate(where, what, against) {
+            for (var name in against) {
+                if (!(name in where))
+                    throw new Error('Type ' + type + ' requires ' + what + ' ' + name);
+                if (!schemaCompatible(where[name].schema, against[name]))
+                    throw new Error('Schema for ' + name + ' is not compatible with type ' + type);
+            }
         }
 
-        var types = rows[0].types;
-        for (var trigger in types[0]) {
-            if (!(trigger in ast.triggers))
-                throw new Error('Type ' + type + ' requires trigger ' + trigger);
-            if (!schemaCompatible(ast.triggers[trigger].schema, types[0][trigger]))
-                throw new Error('Schema for ' + trigger + ' is not compatible with type ' + type);
-        }
-        for (var action in types[1]) {
-            if (!(action in ast.actions))
-                throw new Error('Type ' + type + ' requires action ' + action);
-            if (!schemaCompatible(ast.actions[action].schema, types[1][action]))
-                throw new Error('Schema for ' + action + ' is not compatible with type ' + type);
-        }
-        for (var query in (types[2] || {})) {
-            if (!(query in ast.queries))
-                throw new Error('Type ' + type + ' requires query ' + query);
-            if (!schemaCompatible(ast.queries[query].schema, (types[2] || {})[query]))
-                throw new Error('Schema for ' + query + ' is not compatible with type ' + type);
-        }
+        validate(ast.triggers, 'trigger', rows[0].triggers);
+        validate(ast.actions, 'action', rows[0].actions);
+        validate(ast.queries, 'query', rows[0].queries);
     });
 }
 
@@ -160,57 +166,18 @@ function validateDevice(dbClient, req) {
         ast.params = {};
     if (!ast.types)
         ast.types = [];
+    if (!ast.child_types)
+        ast.child_types = [];
     if (!ast.auth)
         ast.auth = {"type":"none"};
-    if (!ast.auth.type || ['none','oauth2','basic','builtin'].indexOf(ast.auth.type) == -1)
+    if (!ast.auth.type || ['none','oauth2','basic','builtin','discovery'].indexOf(ast.auth.type) == -1)
         throw new Error("Invalid auth type");
     if (fullcode && ast.auth.type === 'basic' && (!ast.params.username || !ast.params.password))
         throw new Error("Username and password must be provided for basic authentication");
     if (ast.types.indexOf('online-account') >= 0 && ast.types.indexOf('data-source') >= 0)
         throw new Error("Interface cannot be both marked online-account and data-source");
 
-    if (!ast.triggers)
-        ast.triggers = {};
-    if (!ast.actions)
-        ast.actions = {};
-    if (!ast.queries)
-        ast.queries = {};
-    for (var name in ast.triggers) {
-        if (!ast.triggers[name].schema)
-            throw new Error("Missing trigger schema for " + name);
-        if ((ast.triggers[name].args && ast.triggers[name].args.length !== ast.triggers[name].schema.length) ||
-            (ast.triggers[name].params && ast.triggers[name].params.length !== ast.triggers[name].schema.length))
-            throw new Error("Invalid number of arguments in " + name);
-        if (ast.triggers[name].questions && triggers[name].args.length !== ast.triggers[name].schema.length)
-            throw new Error("Invalid number of questions in " + name);
-        ast.triggers[name].schema.forEach(function(t) {
-            ThingTalk.Type.fromString(t);
-        });
-    }
-    for (var name in ast.actions) {
-        if (!ast.actions[name].schema)
-            throw new Error("Missing action schema for " + name);
-        if ((ast.actions[name].args && ast.actions[name].args.length !== ast.actions[name].schema.length) ||
-            (ast.actions[name].params && ast.actions[name].params.length !== ast.actions[name].schema.length))
-            throw new Error("Invalid number of arguments in " + name);
-        if (ast.actions[name].questions && ast.actions[name].questions.length !== ast.actions[name].schema.length)
-            throw new Error("Invalid number of questions in " + name);
-        ast.actions[name].schema.forEach(function(t) {
-            ThingTalk.Type.fromString(t);
-        });
-    }
-    for (var name in ast.queries) {
-        if (!ast.queries[name].schema)
-            throw new Error("Missing query schema for " + name);
-        if ((ast.queries[name].args && ast.queries[name].args.length !== ast.queries[name].schema.length) ||
-            (ast.queries[name].params && ast.queries[name].params.length !== ast.queries[name].schema.length))
-            throw new Error("Invalid number of arguments in " + name);
-        if (ast.queries[name].questions && ast.queries[name].questions.length !== ast.queries[name].schema.length)
-            throw new Error("Invalid number of questions in " + name);
-        ast.queries[name].schema.forEach(function(t) {
-            ThingTalk.Type.fromString(t);
-        });
-    }
+    Validation.validateAllInvocations(ast);
 
     if (fullcode) {
         if (!ast.name)
@@ -230,76 +197,69 @@ function validateDevice(dbClient, req) {
                 throw new Error("Missing query url for " + name);
         }
     } else if (!kind.startsWith('org.thingpedia.builtin.')) {
-        if (!req.file || !req.file.buffer || !req.file.buffer.length)
+        if (!req.files || !req.files.zipfile || req.files.zipfile.length === 0)
             throw new Error('Invalid zip file');
     }
 
     return Q.all(ast.types.map(function(type) {
-        return validateSchema(dbClient, type, ast, type === ast['global-name']);
+        return validateSchema(dbClient, type, ast, req);
     })).then(function() {
         return ast;
     });
 }
 
-function ensurePrimarySchema(dbClient, kind, ast) {
-    var triggers = {};
-    var triggerMeta = {};
-    var actions = {};
-    var actionMeta = {};
-    var queries = {};
-    var queryMeta = {};
-
-    for (var name in ast.triggers) {
-        triggers[name] = ast.triggers[name].schema;
-        triggerMeta[name] = {
-            doc: ast.triggers[name].doc,
-            args: ast.triggers[name].params || ast.triggers[name].args || [],
-            questions: ast.triggers[name].questions || []
-        };
-    }
-    for (var name in ast.actions) {
-        actions[name] = ast.actions[name].schema;
-        actionMeta[name] = {
-            doc: ast.actions[name].doc,
-            args: ast.actions[name].params || ast.actions[name].args || [],
-            questions: ast.actions[name].questions || []
-        };
-    }
-    for (var name in ast.queries) {
-        queries[name] = ast.queries[name].schema;
-        queryMeta[name] = {
-            doc: ast.queries[name].doc,
-            args: ast.queries[name].params || ast.queries[name].args || [],
-            questions: ast.actions[name].questions || []
-        };
-    }
-
+function getOrCreateSchema(dbClient, kind, kind_type, types, meta, req, approve) {
     return schema.getByKind(dbClient, kind).then(function(existing) {
+        var obj = {};
+        if (existing.owner !== req.user.developer_org &&
+            req.user.developer_status < user.DeveloperStatus.ADMIN)
+            throw new Error("Not Authorized");
+
+        obj.developer_version = existing.developer_version + 1;
+        if (req.user.developer_status >= user.DeveloperStatus.TRUSTED_DEVELOPER &&
+            approve)
+            obj.approved_version = obj.developer_version;
+
         return schema.update(dbClient,
-                             existing.id, { developer_version: existing.developer_version + 1,
-                                            approved_version: existing.approved_version + 1},
-                             [triggers, actions, queries], [triggerMeta, actionMeta, queryMeta]);
+                             existing.id, existing.kind, obj,
+                             types, meta);
     }).catch(function(e) {
-        return schema.create(dbClient, { developer_version: 0,
-                                         approved_version: 0,
-                                         kind: kind },
-                             [triggers, actions, queries], [triggerMeta, actionMeta, queryMeta]);
-    }).then(function() {
+        console.error(e.stack);
+        var obj = {
+            kind: kind,
+            kind_type: kind_type,
+            owner: req.user.developer_org
+        };
+        if (req.user.developer_status < user.DeveloperStatus.TRUSTED_DEVELOPER ||
+            !approve) {
+            obj.approved_version = null;
+            obj.developer_version = 0;
+        } else {
+            obj.approved_version = 0;
+            obj.developer_version = 0;
+        }
+        return schema.create(dbClient, obj, types, meta);
+    });
+}
+
+function ensurePrimarySchema(dbClient, kind, ast, req, approve) {
+    var res = ManifestToSchema.toSchema(ast);
+    var types = res[0];
+    var meta = res[1];
+
+    return getOrCreateSchema(dbClient, kind, 'primary', types, meta, req, approve).then(function() {
         if (!ast['global-name'])
             return;
 
-        return schema.getByKind(dbClient, ast['global-name']).then(function(existing) {
-            return schema.update(dbClient,
-                                 existing.id, { developer_version: existing.developer_version + 1,
-                                                approved_version: existing.approved_version + 1 },
-                                 [triggers, actions, queries], [triggerMeta, actionMeta, queryMeta]);
-        }).catch(function(e) {
-            return schema.create(dbClient, { developer_version: 0,
-                                             approved_version: 0,
-                                             kind: ast['global-name'] },
-                                 [triggers, actions, queries], [triggerMeta, actionMeta, queryMeta]);
-        });
+        return getOrCreateSchema(dbClient, ast['global-name'], 'global', types, meta, req, approve);
     });
+}
+
+function ensureExamples(dbClient, ast) {
+    if (!ast['global-name'])
+        return;
+
+    return generateExamples(dbClient, ast['global-name'], ast);
 }
 
 function doCreateOrUpdate(id, create, req, res) {
@@ -309,7 +269,6 @@ function doCreateOrUpdate(id, create, req, res) {
     var fullcode = !req.body.fullcode;
     var kind = req.body.primary_kind;
     var approve = !!req.body.approve;
-    var online = false;
 
     var gAst = undefined;
 
@@ -318,6 +277,7 @@ function doCreateOrUpdate(id, create, req, res) {
             return Q.try(function() {
                 return validateDevice(dbClient, req);
             }).catch(function(e) {
+                console.error(e.stack);
                 res.render('thingpedia_device_create_or_edit', { page_title:
                                                                  (create ?
                                                                   "ThingPedia - create new device" :
@@ -336,16 +296,21 @@ function doCreateOrUpdate(id, create, req, res) {
                 if (ast === null)
                     return;
 
-                return ensurePrimarySchema(dbClient, kind, ast);
+                return ensurePrimarySchema(dbClient, kind, ast, req, approve);
+            }).tap(function(ast) {
+                if (ast === null)
+                    return;
+
+                return ensureExamples(dbClient, ast);
             }).then(function(ast) {
                 if (ast === null)
                     return null;
 
                 var extraKinds = ast.types;
+                var extraChildKinds = ast.child_types;
                 var globalName = ast['global-name'];
                 if (!globalName)
                     globalName = null;
-                online = extraKinds.indexOf('online-account') >= 0;
 
                 var obj = {
                     primary_kind: kind,
@@ -367,7 +332,7 @@ function doCreateOrUpdate(id, create, req, res) {
                         obj.approved_version = 0;
                         obj.developer_version = 0;
                     }
-                    return model.create(dbClient, obj, extraKinds, code);
+                    return model.create(dbClient, obj, extraKinds, extraChildKinds, code);
                 } else {
                     return model.get(dbClient, id).then(function(old) {
                         if (old.owner !== req.user.developer_org &&
@@ -380,52 +345,91 @@ function doCreateOrUpdate(id, create, req, res) {
                             approve)
                             obj.approved_version = obj.developer_version;
 
-                        return model.update(dbClient, id, obj, extraKinds, code);
+                        return model.update(dbClient, id, obj, extraKinds, extraChildKinds, code);
                     });
                 }
             }).then(function(obj) {
                 if (obj === null)
-                    return false;
+                    return null;
 
                 if (!obj.fullcode && !obj.primary_kind.startsWith('org.thingpedia.builtin.')) {
-                    var zipFile = new JSZip(req.file.buffer, { checkCRC32: true });
+                    var zipFile = new JSZip();
+                    // unfortunately JSZip only loads from memory, so we need to load the entire file
+                    // at once
+                    // this is somewhat a problem, because the file can be up to 30-50MB in size
+                    // we just hope the GC will get rid of the buffer quickly
+                    return Q.nfcall(fs.readFile, req.files.zipfile[0].path).then(function(buffer) {
+                        return zipFile.loadAsync(buffer, { checkCRC32: true });
+                    }).then(function() {
+                        var packageJson = zipFile.file('package.json');
+                        if (!packageJson)
+                            throw new Error('package.json missing from device zip file');
 
-                    var packageJson = zipFile.file('package.json');
-                    if (!packageJson)
-                        throw new Error('package.json missing from device zip file');
+                        return packageJson.async('string');
+                    }).then(function(text) {
+                        var parsed = JSON.parse(text);
+                        if (!parsed.name || !parsed.main)
+                            throw new Error('Invalid package.json');
 
-                    var parsed = JSON.parse(packageJson.asText());
-                    if (!parsed.name || !parsed.main)
-                        throw new Error('Invalid package.json');
+                        parsed['thingpedia-version'] = obj.developer_version;
+                        parsed['thingpedia-metadata'] = gAst;
 
-                    parsed['thingpedia-version'] = obj.developer_version;
-                    parsed['thingpedia-metadata'] = gAst;
+                        // upload the file asynchronously to avoid blocking the request
+                        setTimeout(function() {
+                            zipFile.file('package.json', JSON.stringify(parsed));
 
-                    // upload the file asynchronously to avoid blocking the request
+                            code_storage.storeZipFile(zipFile.generateNodeStream({ compression: 'DEFLATE',
+                                                                                type: 'nodebuffer',
+                                                                                platform: 'UNIX'}),
+                                                      obj.primary_kind, obj.developer_version)
+                                .catch(function(e) {
+                                    console.error('Failed to upload zip file to S3: ' + e);
+                                }).done();
+                        }, 0);
+                    }).then(function() {
+                        return obj.primary_kind;
+                    });
+                } else {
+                    return obj.primary_kind;
+                }
+            }).then(function(done) {
+                if (!done)
+                    return done;
+
+                if (req.files.icon && req.files.icon.length) {
+                    console.log('req.files.icon', req.files.icon);
+                    // upload the icon asynchronously to avoid blocking the request
                     setTimeout(function() {
-                        zipFile.file('package.json', JSON.stringify(parsed));
-
-                        code_storage.storeFile(zipFile.generate({compression: 'DEFLATE',
-                                                                 type: 'nodebuffer',
-                                                                 platform: 'UNIX'}),
-                                               obj.primary_kind, obj.developer_version)
-                            .catch(function(e) {
-                                console.error('Failed to upload zip file to S3: ' + e);
-                            }).done();
+                        console.log('uploading icon');
+                        Q.try(function() {
+                            var graphicsApi = platform.getCapability('graphics-api');
+                            var image = graphicsApi.createImageFromPath(req.files.icon[0].path);
+                            image.resizeFit(512, 512);
+                            return Q.ninvoke(image, 'stream', 'png');
+                        }).spread(function(stdout, stderr) {
+                            return code_storage.storeIcon(stdout, done);
+                        }).catch(function(e) {
+                            console.error('Failed to upload icon to S3: ' + e);
+                        }).done();
                     }, 0);
                 }
-
-                return true;
+                return done;
             }).then(function(done) {
-                if (done) {
-                    if (online)
-                        res.redirect('/thingpedia/devices?class=online');
-                    else
-                        res.redirect('/thingpedia/devices?class=physical');
-                }
+                if (done)
+                    res.redirect('/thingpedia/devices/by-id/' + done);
             });
         });
+    }).finally(function() {
+        var toDelete = [];
+        if (req.files) {
+            if (req.files.zipfile && req.files.zipfile.length)
+                toDelete.push(Q.nfcall(fs.unlink, req.files.zipfile[0].path));
+            if (req.files.icon && req.files.icon.length)
+                toDelete.push(Q.nfcall(fs.unlink, req.files.icon[0].path));
+        }
+        return Q.all(toDelete);
     }).catch(function(e) {
+        console.error(e.stack);
         res.status(400).render('error', { page_title: "ThingPedia - Error",
                                           message: e });
     }).done();
@@ -443,23 +447,18 @@ router.get('/update/:id', user.redirectLogIn, user.requireDeveloper(), function(
                     req.user.developer < user.DeveloperStatus.ADMIN)
                     throw new Error("Not Authorized");
 
-                return model.getDeveloperCode(dbClient, req.params.id).then(function(row) {
+                return model.getCodeByVersion(dbClient, req.params.id, d.developer_version).then(function(row) {
                     d.code = row.code;
                     return d;
                 });
             }).then(function(d) {
-                try {
-                    code = JSON.stringify(JSON.parse(d.code), undefined, 2);
-                } catch(e) {
-                    code = d.code;
-                }
                 res.render('thingpedia_device_create_or_edit', { page_title: "ThingPedia - edit device",
                                                                  csrfToken: req.csrfToken(),
                                                                  id: req.params.id,
                                                                  device: { name: d.name,
                                                                            primary_kind: d.primary_kind,
                                                                            description: d.description,
-                                                                           code: code,
+                                                                           code: d.code,
                                                                            fullcode: d.fullcode },
                                                                  create: false });
             });

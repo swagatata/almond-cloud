@@ -54,12 +54,16 @@ module.exports = class Assistant extends events.EventEmitter {
 
     sendReply(msg) {
         if (this._currentConversation)
-            this._currentConversation.sendReply(msg);
+            return this._currentConversation.sendReply(msg);
+        else
+            return Q();
     }
 
     sendPicture(url) {
         if (this._currentConversation)
-            this._currentConversation.sendPicture(url);
+            return this._currentConversation.sendPicture(url);
+        else
+            return Q();
     }
 
     openConversation(feedId, user, delegate) {
@@ -71,22 +75,6 @@ module.exports = class Assistant extends events.EventEmitter {
         this._conversations[feedId] = conv;
         this._currentConversation = conv;
         return conv;
-    }
-
-    start() {
-        return this._engine.ui.getAllNotify().then(function(notify) {
-            this._notify = notify;
-            notify.on('data', this._notifyListener);
-        }.bind(this));
-    }
-
-    stop() {
-        if (this._notify) {
-            this._notify.removeListener('data', this._notifyListener);
-            return this._notify.close();
-        } else {
-            return Q();
-        }
     }
 }
 module.exports.prototype.$rpcMethods = ['openConversation'];

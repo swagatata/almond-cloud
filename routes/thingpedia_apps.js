@@ -11,6 +11,7 @@ const express = require('express');
 
 const ThingTalk = require('thingtalk');
 const AppCompiler = ThingTalk.Compiler;
+const SchemaRetriever = ThingTalk.SchemaRetriever;
 
 const db = require('../util/db');
 const user = require('../util/user');
@@ -20,54 +21,9 @@ const device = require('../model/device');
 const category = require('../model/category');
 const schema = require('../model/schema');
 const feeds = require('../shared/util/feeds');
+const ThingPediaClient = require('../util/thingpedia-client');
 
 const EngineManager = require('../lib/enginemanager');
-
-function SchemaRetriever() {
-    this._request = null;
-    this._pendingRequests = [];
-}
-
-SchemaRetriever.prototype._ensureRequest = function() {
-    if (this._request !== null)
-        return;
-
-    this._request = Q.delay(0).then(function() {
-        var pending = this._pendingRequests;
-        this._pendingRequests = [];
-        this._request = null;
-
-        return db.withClient(function(dbClient) {
-            return schema.getTypesByKinds(dbClient, pending, null);
-        }).then(function(rows) {
-            var obj = {};
-
-            rows.forEach(function(row) {
-                if (row.types === null)
-                    return;
-                obj[row.kind] = {
-                    triggers: row.types[0],
-                    actions: row.types[1],
-                    queries: (row.types[2] || {})
-                };
-            });
-
-            return obj;
-        });
-    }.bind(this));
-};
-
-SchemaRetriever.prototype.getSchema = function(kind) {
-    if (this._pendingRequests.indexOf(kind) < 0)
-        this._pendingRequests.push(kind);
-    this._ensureRequest();
-    return this._request.then(function(everything) {
-        if (kind in everything)
-            return everything[kind];
-        else
-            return null;
-    });
-};
 
 var router = express.Router();
 
@@ -190,19 +146,26 @@ router.get('/create', user.redirectLogIn, function(req, res) {
                                           name: '',
                                           description: '',
                                           code: '',
+                                          canonical: '',
                                           tags: [] });
 });
 
-var _schemaRetriever = new SchemaRetriever();
+var _schemaRetriever = new SchemaRetriever(new ThingPediaClient());
 
 function validateApp(name, description, code) {
+    var compiler = new AppCompiler();
+
     return Q.try(function() {
         if (!name || !description)
             throw new Error("A app must have a name and a description");
 
-        var compiler = new AppCompiler();
         compiler.setSchemaRetriever(_schemaRetriever);
         return compiler.compileCode(code);
+    }).then(function() {
+        if (compiler.feedAccess)
+            return compiler.name + '[F]';
+        else
+            return compiler.name;
     });
 }
 
@@ -211,16 +174,19 @@ router.post('/create', user.requireLogIn, function(req, res) {
     var description = req.body.description;
     var code = req.body.code;
     var tags = req.body.tags || [];
+    var canonical = req.body.canonical || null;
 
     return Q.try(function() {
         return validateApp(name, description, code);
-    }).then(function() {
+    }).then(function(appId) {
         // FINISHME figure out what devices this app uses
 
         return db.withTransaction(function(dbClient) {
             return model.create(dbClient, { owner: req.user.id,
+                                            app_id: appId,
                                             name: name,
                                             description: description,
+                                            canonical: canonical,
                                             code: code })
                 .tap(function(app) {
                     return model.addTags(dbClient, app.id, tags);
@@ -229,12 +195,12 @@ router.post('/create', user.requireLogIn, function(req, res) {
     }).then(function(app) {
         res.redirect('/thingpedia/apps/' + app.id);
     }).catch(function(err) {
-        console.log(err);
         res.render('thingpedia_app_create', { error: err,
                                               op: 'create',
                                               csrfToken: req.csrfToken(),
                                               name: name,
                                               description: description,
+                                              canonical: canonical,
                                               code: code,
                                               tags: tags });
     }).done();
@@ -355,6 +321,7 @@ function forkApp(req, res, error, name, description, code, tags) {
                                                      fork_name: app.name,
                                                      name: name || app.name,
                                                      description: description || app.description,
+                                                     canonical: canonical,
                                                      code: code || app.code,
                                                      tags: tags || app.tags.map(function(t) { return t.tag; }) });
     }).catch(function(e) {
@@ -372,16 +339,19 @@ router.post('/fork/:id(\\d+)', user.requireLogIn, function(req, res) {
     var description = req.body.description;
     var code = req.body.code;
     var tags = req.body.tags || [];
+    var canonical = req.body.canonical || null;
 
     Q.try(function() {
         return validateApp(name, description, code);
-    }).then(function() {
+    }).then(function(appId) {
         // FINISHME figure out what devices this app uses
 
         return db.withTransaction(function(dbClient) {
             return model.create(dbClient, { owner: req.user.id,
+                                            app_id: appId,
                                             name: name,
                                             description: description,
+                                            canonical: canonical,
                                             code: code })
                 .tap(function(app) {
                     return model.addTags(dbClient, app.id, tags);
@@ -419,6 +389,7 @@ router.get('/edit/:id(\\d+)', user.redirectLogIn, function(req, res) {
                                               app_id: app.id,
                                               name: app.name,
                                               description: app.description,
+                                              canonical: app.canonical,
                                               code: app.code,
                                               tags: app.tags.map(function(t) { return t.tag; }) });
     }).catch(function(e) {
@@ -432,10 +403,11 @@ router.post('/edit/:id(\\d+)', user.requireLogIn, function(req, res) {
     var description = req.body.description;
     var code = req.body.code;
     var tags = req.body.tags || [];
+    var canonical = req.body.canonical || null;
 
     Q.try(function() {
         return validateApp(name, description, code);
-    }).then(function() {
+    }).then(function(appId) {
         return db.withTransaction(function(dbClient) {
             return model.get(dbClient, req.params.id).then(function(r) {
                 if (req.user.developer_status !== user.DeveloperStatus.ADMIN &&
@@ -447,6 +419,7 @@ router.post('/edit/:id(\\d+)', user.requireLogIn, function(req, res) {
 
                 // FINISHME figure out what devices this app uses
                 return model.update(dbClient, req.params.id, { name: name,
+                                                               app_id: appId,
                                                                description: description,
                                                                code: code })
                     .then(function() {
@@ -468,12 +441,11 @@ router.post('/edit/:id(\\d+)', user.requireLogIn, function(req, res) {
                                               app_id: req.params.id,
                                               name: name,
                                               description: description,
+                                              canonical: canonical,
                                               code: code,
                                               tags: tags });
     }).done();
 });
-
-    var compiler;
 
 router.get('/install/:id(\\d+)', user.redirectLogIn, function(req, res, next) {
     db.withClient(function(dbClient) {

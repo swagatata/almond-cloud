@@ -19,6 +19,10 @@ function safeMkdir(dir) {
 }
 
 module.exports = {
+    storeIcon: function(blob, name) {
+        safeMkdir('./icons');
+        return Q.nfcall(fs.writeFile, './icons/' + name + '.png');
+    },
     storeFile: function(blob, name, version) {
         safeMkdir('./code');
         return Q.nfcall(fs.writeFile, './code/' + name + '-v' + version + '.zip', blob);
