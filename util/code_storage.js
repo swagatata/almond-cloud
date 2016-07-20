@@ -23,6 +23,9 @@ module.exports = {
         safeMkdir('./icons');
         return Q.nfcall(fs.writeFile, './icons/' + name + '.png');
     },
+    downloadZipFile: function(name, version) {
+        return fs.createReadStream('./code/' + name + '-v' + version + '.zip');
+    },
     storeZipFile: function(blob, name, version) {
         safeMkdir('./code');
         var stream = fs.createWriteStream('./code/' + name + '-v' + version + '.zip');
